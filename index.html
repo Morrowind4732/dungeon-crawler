@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#17140f" />
+  <title>Dungeon Camp Prototype - Isometric Patch 11</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="gameCanvas" aria-label="Dungeon Camp game canvas"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-left">
+        <div class="bar-wrap"><span>HP</span><div class="bar"><div id="hpFill" class="bar-fill hp"></div></div><b id="hpText">100/100</b></div>
+        <div class="bar-wrap"><span>XP</span><div class="bar"><div id="xpFill" class="bar-fill xp"></div></div><b id="xpText">0/100</b></div>
+        <div class="bar-wrap"><span>STA</span><div class="bar"><div id="staminaFill" class="bar-fill stamina free"></div></div><b id="staminaText">100/100</b></div>
+      </div>
+      <div class="hud-center">
+        <strong id="locationText">Camp</strong>
+        <small id="roomText"></small>
+      </div>
+      <div class="hud-right">
+        <button id="menuBtn" class="icon-btn" title="Menu">Menu</button>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="prompt" class="prompt hidden"></div>
+
+    <div id="touchControls" class="hidden standard-controls">
+      <div id="joystickZone" class="joystick-zone">
+        <div id="joystickBase" class="joystick-base primary-stick">
+          <div id="joystickKnob" class="joystick-knob"></div>
+          <span id="joystickLabel" class="stick-label">MOVE + AIM</span>
+        </div>
+        <div id="secondaryJoystickBase" class="joystick-base secondary-stick">
+          <div id="secondaryJoystickKnob" class="joystick-knob"></div>
+          <span id="secondaryJoystickLabel" class="stick-label">MOVE</span>
+        </div>
+      </div>
+      <div id="actionCluster" class="action-cluster">
+        <button id="abilityBtn" class="action-btn small">Skill</button>
+        <button id="interactBtn" class="action-btn medium">Use</button>
+        <button id="attackBtn" class="action-btn attack">Attack</button>
+        <button id="autoBtn" class="action-btn small toggle on">Auto</button>
+        <button id="potionBtn" class="action-btn small">Potion</button>
+        <button id="magnetBtn" class="action-btn small magnet" title="Pull all room loot">🧲</button>
+      </div>
+    </div>
+
+    <div id="modalBackdrop" class="modal-backdrop hidden">
+      <section id="modal" class="modal" role="dialog" aria-modal="true">
+        <header class="modal-header">
+          <h2 id="modalTitle">Menu</h2>
+          <button id="modalClose" class="icon-btn">Close</button>
+        </header>
+        <div id="modalBody" class="modal-body"></div>
+      </section>
+    </div>
+
+    <section id="startScreen" class="screen-panel">
+      <div class="title-card">
+        <div class="eyebrow">ISOMETRIC PATCH 11 · ALPHAS & EXPEDITIONS</div>
+        <h1>Dungeon Camp</h1>
+        <p>Persistent dungeon floors, survivor combat, gathering skills, loot, equipment, quests, and risky extraction.</p>
+        <div id="saveSlots" class="save-slots"></div>
+        <div class="desktop-hint">Mobile: one touch moves and aims · two touches use left MOVE / right AIM · quick-flick MOVE to dodge · double-flick AIM to dodge · tap the minimap for the full map · magnet pulls room loot</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
