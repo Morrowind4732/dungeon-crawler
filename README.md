@@ -1,28 +1,25 @@
-# Dungeon Camp Prototype — Isometric Patch 12
+# Dungeon Camp Prototype — Isometric Patch 13
 
 Open `index.html` in a modern mobile browser. No server, package install, or external assets are required.
 
-## Patch 12 highlights
+## Patch 13 highlights
 
-- Weapon attacks now generate a bright air-slash effect aligned to the actual active damage zone and full weapon reach
-- A leading strike line and fading wake make the current swing direction easier to read while moving
-- Every dungeon floor now has a guaranteed free retreat through the original entrance in its starting room
-- The full dungeon map marks the starting room with `S`, and the room minimap marks the exit staircase
-- Special monster variants are 25% larger than they were in Patch 11
-- The floating `ALPHA` label has been removed
-- Special variants are identified naturally by a subtle pulsing gold aura and ground glow
+- The full dungeon map now uses the same isometric diamond orientation as the playable rooms
+- Full-map doors and routes line up with the room view: N upper-right, E lower-right, S lower-left, and W upper-left
+- The current room is highlighted and automatically centered when the full map opens
+- Every touch starting on the left half of the screen is permanently assigned to MOVE
+- Every touch starting on the right half of the screen is permanently assigned to AIM, even with no movement touch active
+- The movement stick has a larger dead zone to prevent tiny thumb drift from walking the player into enemies
+- MOVE flick dodge and AIM double-flick dodge both work independently
+- Auto-attack remains active while hostile ricocheting projectiles are near the player, even after the last enemy dies
 
-## Features carried forward from Patch 11
+## Features carried forward from Patch 12
 
-- Helmet loot renders as a canvas-safe helmet emblem instead of raw SVG markup
-- Newly generated dungeons default to Small (20 rooms)
-- Purchased survey items unlock Medium, Large, and Huge expeditions
-- Bigger expeditions award +15%, +35%, or +65% monster experience
-- Special monster variants have unique fire, vortex, poison leap, sonar, summoning, stomp, and web abilities
-- Ground hazards can affect enemies, while enemies attempt to route around dangerous areas
-- The Horned Warden cycles through exposed, hunting, and frenzy speeds; charges; and uses the variant abilities
-- Twin-stick mode supports a right AIM-stick double-flick dodge while retaining MOVE-stick dodging
-- Dodge travel distance is roughly 52% longer than the original version
-- New characters begin with the Camp-Forged Sword rather than a dagger
+- Weapon attacks generate a bright air-slash effect aligned to the active damage zone
+- Every floor has a guaranteed free retreat through the original entrance
+- Special monster variants are larger, use distinct abilities, and are identified by a subtle gold aura rather than an `ALPHA` label
+- Newly generated dungeons default to Small, with purchased Medium, Large, and Huge expeditions awarding increased monster XP
+- The Horned Warden uses speed phases, charges, and the special monster abilities
+- New characters begin with the Camp-Forged Sword
 
 Keyed doors and key/puzzle-gated backtracking remain reserved for a future patch.

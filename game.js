@@ -840,6 +840,22 @@
     return game.scene === 'dungeon' && game.enemies.some(enemy => !enemy.dead);
   }
 
+  function hasNearbyHostileProjectile() {
+    if (game.scene !== 'dungeon' || !game.player) return false;
+    const weapon = getWeaponProfile();
+    return game.projectiles.some(projectile => {
+      if (projectile.owner !== 'enemy' || projectile.life <= 0 || projectile.hp <= 0) return false;
+      const projectileSpeed = Math.hypot(projectile.vx || 0, projectile.vy || 0);
+      // Start defensive swings early enough for even slower weapons to meet a ricocheting shot.
+      const threatRange = clamp(weapon.reach * 1.7 + projectileSpeed * 0.62, 300, 540);
+      return dist(projectile.x, projectile.y, game.player.x, game.player.y) <= threatRange + projectile.radius;
+    });
+  }
+
+  function isAutoAttackThreatActive() {
+    return isCombatActive() || hasNearbyHostileProjectile();
+  }
+
   function attemptDodge(x, y) {
     const p = game.player;
     if (!p || p.dodgeCooldown > 0 || game.paused) return false;
@@ -921,7 +937,7 @@
     p.abilityCooldown = Math.max(0, p.abilityCooldown - dt);
     p.invuln = Math.max(0, p.invuln - dt);
 
-    if (((game.autoAttack && isCombatActive()) || game.input.manualHeld) && p.attackCooldown <= 0 && game.scene === 'dungeon') requestAttack();
+    if (((game.autoAttack && isAutoAttackThreatActive()) || game.input.manualHeld) && p.attackCooldown <= 0 && game.scene === 'dungeon') requestAttack();
     updateAttack(dt);
 
     const regen = game.character.abilities.regen || 0;
@@ -2540,11 +2556,11 @@
   function showSettings() {
     const s = game.character.settings;
     showModal('Settings', `
-      <div class="section-title">Control side</div>
-      <div class="menu-grid"><button class="panel-btn hand-choice" data-value="standard">Movement left / Actions right</button><button class="panel-btn hand-choice" data-value="reversed">Movement right / Actions left</button></div>
+      <div class="section-title">Action button side</div>
+      <div class="menu-grid"><button class="panel-btn hand-choice" data-value="standard">Actions right</button><button class="panel-btn hand-choice" data-value="reversed">Actions left</button></div>
       <div class="section-title">Thumbstick</div>
       <div class="menu-grid"><button class="panel-btn stick-choice" data-value="fixed">Visible home position</button><button class="panel-btn stick-choice" data-value="floating">Floating only</button></div>
-      <p class="muted">Current: ${s.handedness === 'reversed' ? 'reversed' : 'standard'} controls, ${s.joystick || 'fixed'} thumbstick. One touch moves and aims. With two touches, the leftmost stick always becomes MOVE and the rightmost stick always becomes AIM.</p>
+      <p class="muted">Current: action buttons ${s.handedness === 'reversed' ? 'left' : 'right'}, ${s.joystick || 'fixed'} thumbsticks. The left half of the screen is always MOVE and the right half is always AIM. Either stick works independently.</p>
     `);
     modalBody.querySelectorAll('.hand-choice').forEach(btn => btn.addEventListener('click', () => {
       s.handedness = btn.dataset.value; applyControlSettings(); saveGame(); showSettings();
@@ -2568,47 +2584,110 @@
     if (game.scene !== 'dungeon') { toast('The dungeon map is available inside a floor.'); return; }
     const floor = currentFloor();
     const rooms = Object.values(floor.rooms);
-    const roomByPos = new Map(rooms.map(room => [`${room.gx},${room.gy}`, room]));
-    const minX = Math.min(...rooms.map(r => r.gx)), maxX = Math.max(...rooms.map(r => r.gx));
-    const minY = Math.min(...rooms.map(r => r.gy)), maxY = Math.max(...rooms.map(r => r.gy));
-    const cols = maxX - minX + 1;
+    const discoveredRooms = rooms.filter(room => room.discovered);
+    const roomById = new Map(rooms.map(room => [room.id, room]));
+    const halfW = 32;
+    const halfH = 18;
+    const stepX = 52;
+    const stepY = 31;
+    const padding = 70;
+    const rawPosition = room => ({ x: (room.gx - room.gy) * stepX, y: (room.gx + room.gy) * stepY });
+    const rawPositions = discoveredRooms.map(rawPosition);
+    const minRawX = Math.min(...rawPositions.map(point => point.x));
+    const maxRawX = Math.max(...rawPositions.map(point => point.x));
+    const minRawY = Math.min(...rawPositions.map(point => point.y));
+    const maxRawY = Math.max(...rawPositions.map(point => point.y));
+    const width = Math.max(340, Math.ceil(maxRawX - minRawX + padding * 2));
+    const height = Math.max(300, Math.ceil(maxRawY - minRawY + padding * 2));
+    const position = room => {
+      const raw = rawPosition(room);
+      return { x: raw.x - minRawX + padding, y: raw.y - minRawY + padding };
+    };
+    const directionVector = {
+      N: { x: 1, y: -1 }, E: { x: 1, y: 1 }, S: { x: -1, y: 1 }, W: { x: -1, y: -1 },
+    };
+    const doorPoint = (center, dirKey) => {
+      if (dirKey === 'N') return { x: center.x + halfW / 2, y: center.y - halfH / 2 };
+      if (dirKey === 'E') return { x: center.x + halfW / 2, y: center.y + halfH / 2 };
+      if (dirKey === 'S') return { x: center.x - halfW / 2, y: center.y + halfH / 2 };
+      return { x: center.x - halfW / 2, y: center.y - halfH / 2 };
+    };
+    const doorLine = (point, dirKey) => {
+      const tangent = (dirKey === 'N' || dirKey === 'S') ? { x: 0.86, y: 0.5 } : { x: -0.86, y: 0.5 };
+      const length = 8;
+      return {
+        x1: point.x - tangent.x * length, y1: point.y - tangent.y * length,
+        x2: point.x + tangent.x * length, y2: point.y + tangent.y * length,
+      };
+    };
+
     const uncheckedEdges = new Set();
-    const cells = [];
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const room = roomByPos.get(`${x},${y}`);
-        if (!room || !room.discovered) {
-          cells.push('<div class="map-empty"></div>');
-          continue;
+    const connections = [];
+    const doorMarks = [];
+    const roomMarkup = [];
+
+    for (const room of discoveredRooms) {
+      const center = position(room);
+      let hasUncheckedDoor = false;
+      for (const dir of DIRS) {
+        const neighborId = room.neighbors[dir.key];
+        if (!neighborId) continue;
+        const neighbor = roomById.get(neighborId);
+        const traversed = doorWasTraversed(room, dir.key) || (neighbor ? doorWasTraversed(neighbor, dir.opposite) : false);
+        if (!traversed) {
+          hasUncheckedDoor = true;
+          uncheckedEdges.add([room.id, neighborId].sort().join('|'));
         }
-        const cls = ['map-room', 'discovered'];
-        if (room.cleared) cls.push('cleared');
-        if (room.id === game.currentRoomId) cls.push('current');
-        if (room.type === 'boss') cls.push('boss');
-        if (room.type === 'escape') cls.push('escape');
-        const doorMarkup = [];
-        let hasUncheckedDoor = false;
-        for (const dir of DIRS) {
-          const neighborId = room.neighbors[dir.key];
-          if (!neighborId) continue;
-          const traversed = doorWasTraversed(room, dir.key);
-          if (!traversed) {
-            hasUncheckedDoor = true;
-            uncheckedEdges.add([room.id, neighborId].sort().join('|'));
+        const status = traversed ? 'known' : 'unexplored';
+        const point = doorPoint(center, dir.key);
+        const segment = doorLine(point, dir.key);
+        doorMarks.push(`<line class="iso-map-door ${status}" x1="${segment.x1}" y1="${segment.y1}" x2="${segment.x2}" y2="${segment.y2}"></line>`);
+
+        if (neighbor?.discovered) {
+          if (String(room.id) < String(neighbor.id)) {
+            const neighborPoint = doorPoint(position(neighbor), dir.opposite);
+            connections.push(`<line class="iso-map-connection ${status}" x1="${point.x}" y1="${point.y}" x2="${neighborPoint.x}" y2="${neighborPoint.y}"></line>`);
           }
-          doorMarkup.push(`<span class="map-door door-${dir.key.toLowerCase()} ${traversed ? 'known' : 'unexplored'}" aria-label="${traversed ? 'Traversed' : 'Unchecked'} ${dir.key} door"></span>`);
+        } else {
+          const vector = directionVector[dir.key];
+          connections.push(`<line class="iso-map-connection iso-map-stub ${status}" x1="${point.x}" y1="${point.y}" x2="${point.x + vector.x * 19}" y2="${point.y + vector.y * 12}"></line>`);
         }
-        if (hasUncheckedDoor) cls.push('frontier');
-        const mark = room.type === 'start' ? 'S' : room.type === 'boss' ? 'B' : room.type === 'escape' ? 'E' : room.type === 'gathering' ? 'G' : room.type === 'rest' ? 'R' : '';
-        cells.push(`<div class="${cls.join(' ')}" title="${room.type}${hasUncheckedDoor ? ' · unchecked door' : ''}">${mark}${doorMarkup.join('')}</div>`);
       }
+
+      const classes = ['iso-map-room'];
+      if (room.cleared) classes.push('cleared');
+      if (room.id === game.currentRoomId) classes.push('current');
+      if (room.type === 'boss') classes.push('boss');
+      if (room.type === 'escape') classes.push('escape');
+      if (hasUncheckedDoor) classes.push('frontier');
+      const mark = room.type === 'start' ? 'S' : room.type === 'boss' ? 'B' : room.type === 'escape' ? 'E' : room.type === 'gathering' ? 'G' : room.type === 'rest' ? 'R' : '';
+      const points = `${center.x},${center.y-halfH} ${center.x+halfW},${center.y} ${center.x},${center.y+halfH} ${center.x-halfW},${center.y}`;
+      roomMarkup.push(`
+        <g class="${classes.join(' ')}" ${room.id === game.currentRoomId ? 'data-current-room="true"' : ''}>
+          <title>${escapeHtml(room.type)} room${hasUncheckedDoor ? ' · unchecked door' : ''}</title>
+          ${room.id === game.currentRoomId ? `<ellipse class="iso-current-pulse" cx="${center.x}" cy="${center.y}" rx="${halfW+9}" ry="${halfH+7}"></ellipse>` : ''}
+          <polygon points="${points}"></polygon>
+          ${mark ? `<text x="${center.x}" y="${center.y+4}">${mark}</text>` : ''}
+        </g>`);
     }
-    showModal(`Floor ${floor.floorNumber} Map`, `
-      <p>${floor.sizeName} floor · ${rooms.filter(r => r.discovered).length}/${floor.roomCount} rooms discovered · <strong>${uncheckedEdges.size}</strong> unchecked door${uncheckedEdges.size === 1 ? '' : 's'}.</p>
-      <div class="map-legend"><span><i class="legend-door unexplored"></i> Unchecked door</span><span><i class="legend-door known"></i> Traversed door</span><span class="legend-current">Current room</span></div>
-      <div class="map-scroll"><div class="map-grid" style="grid-template-columns:repeat(${cols},34px)">${cells.join('')}</div></div>
-      <p class="muted">Yellow doors have not been used. Green doors are routes you have already traveled. S = dungeon entrance and guaranteed retreat, E = bonus free escape, B = boss, G = gathering, R = rest.</p>
+
+    showModal(`Floor ${floor.floorNumber} Isometric Map`, `
+      <p>${floor.sizeName} floor · ${discoveredRooms.length}/${floor.roomCount} rooms discovered · <strong>${uncheckedEdges.size}</strong> unchecked door${uncheckedEdges.size === 1 ? '' : 's'}.</p>
+      <div class="iso-map-compass" aria-label="Isometric door directions"><strong>Door directions:</strong><span>W ↖</span><span>N ↗</span><span>S ↙</span><span>E ↘</span></div>
+      <div class="map-legend"><span><i class="legend-door unexplored"></i> Unchecked route</span><span><i class="legend-door known"></i> Traversed route</span><span class="legend-current">Current room</span></div>
+      <div class="map-scroll"><div class="iso-map-stage"><svg class="iso-map-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Isometric dungeon floor map">${connections.join('')}${roomMarkup.join('')}${doorMarks.join('')}</svg></div></div>
+      <p class="muted">The diamond directions now match the room view: N is upper-right, E is lower-right, S is lower-left, and W is upper-left. S = dungeon entrance and guaranteed retreat, E = bonus free escape, B = boss, G = gathering, R = rest.</p>
     `);
+
+    requestAnimationFrame(() => {
+      const scroll = modalBody.querySelector('.map-scroll');
+      const current = modalBody.querySelector('[data-current-room="true"] polygon');
+      if (!scroll || !current) return;
+      const scrollRect = scroll.getBoundingClientRect();
+      const currentRect = current.getBoundingClientRect();
+      scroll.scrollLeft += currentRect.left - scrollRect.left - scroll.clientWidth / 2 + currentRect.width / 2;
+      scroll.scrollTop += currentRect.top - scrollRect.top - scroll.clientHeight / 2 + currentRect.height / 2;
+    });
   }
 
   function returnToTitle() {
@@ -2665,9 +2744,11 @@
   function resetJoystickVisual() {
     resetStickVisual(joystickBase, joystickKnob);
     resetStickVisual(secondaryJoystickBase, secondaryJoystickKnob);
-    joystickLabel.textContent = 'MOVE + AIM';
-    secondaryJoystickLabel.textContent = 'MOVE';
-    touchControls.classList.remove('twin-stick-active');
+    joystickLabel.textContent = 'MOVE';
+    secondaryJoystickLabel.textContent = 'AIM';
+    touchControls.classList.remove('twin-stick-active', 'move-stick-active', 'aim-stick-active', 'joystick-active');
+    setStickRoleVisual('first', 'move');
+    setStickRoleVisual('second', 'aim');
   }
 
   function stickParts(slot) {
@@ -2689,58 +2770,33 @@
   }
 
   function twinStickRoles() {
-    const first = game.joystick.first;
-    const second = game.joystick.second;
-    if (!(first.active && second.active)) return null;
-    const firstX = first.originX || first.startX;
-    const secondX = second.originX || second.startX;
-    return firstX <= secondX ? { move: 'first', aim: 'second' } : { move: 'second', aim: 'first' };
+    return game.joystick.first.active && game.joystick.second.active ? { move: 'first', aim: 'second' } : null;
   }
 
   function setStickRoleVisual(slot, role) {
     const { base, label } = stickParts(slot);
     base.classList.toggle('move-role', role === 'move');
     base.classList.toggle('aim-role', role === 'aim');
-    label.textContent = role === 'move' ? 'MOVE' : role === 'aim' ? 'AIM' : 'MOVE + AIM';
+    label.textContent = role === 'move' ? 'MOVE' : 'AIM';
   }
 
   function syncTouchControlRoles() {
-    const first = game.joystick.first;
-    const second = game.joystick.second;
-    const roles = twinStickRoles();
-    const twin = !!roles;
-    touchControls.classList.toggle('twin-stick-active', twin);
-    touchControls.classList.toggle('joystick-active', first.active || second.active);
+    const moveState = game.joystick.first;
+    const aimState = game.joystick.second;
+    const moveActive = moveState.active;
+    const aimActive = aimState.active;
+    touchControls.classList.toggle('twin-stick-active', moveActive && aimActive);
+    touchControls.classList.toggle('move-stick-active', moveActive);
+    touchControls.classList.toggle('aim-stick-active', aimActive);
+    touchControls.classList.toggle('joystick-active', moveActive || aimActive);
 
-    if (twin) {
-      const moveState = game.joystick[roles.move];
-      const aimState = game.joystick[roles.aim];
-      game.input.x = moveState.vectorX;
-      game.input.y = moveState.vectorY;
-      game.input.aimX = aimState.vectorX;
-      game.input.aimY = aimState.vectorY;
-      game.input.aimMode = true;
-      setStickRoleVisual('first', roles.move === 'first' ? 'move' : 'aim');
-      setStickRoleVisual('second', roles.move === 'second' ? 'move' : 'aim');
-    } else if (first.active) {
-      game.input.x = first.vectorX;
-      game.input.y = first.vectorY;
-      game.input.aimMode = false;
-      setStickRoleVisual('first', 'combined');
-      setStickRoleVisual('second', 'combined');
-    } else if (second.active) {
-      game.input.x = second.vectorX;
-      game.input.y = second.vectorY;
-      game.input.aimMode = false;
-      setStickRoleVisual('second', 'combined');
-      setStickRoleVisual('first', 'combined');
-    } else {
-      game.input.x = 0;
-      game.input.y = 0;
-      game.input.aimMode = false;
-      setStickRoleVisual('first', 'combined');
-      setStickRoleVisual('second', 'combined');
-    }
+    game.input.x = moveActive ? moveState.vectorX : 0;
+    game.input.y = moveActive ? moveState.vectorY : 0;
+    game.input.aimX = aimActive ? aimState.vectorX : 0;
+    game.input.aimY = aimActive ? aimState.vectorY : 0;
+    game.input.aimMode = aimActive;
+    setStickRoleVisual('first', 'move');
+    setStickRoleVisual('second', 'aim');
   }
 
   function setStickFromPointer(slot, clientX, clientY, isStart = false) {
@@ -2754,11 +2810,14 @@
     const max = Math.max(38, rect.width * 0.43);
     const n = normalize(dx, dy);
     const distance = Math.hypot(dx, dy);
+    const rawMagnitude = clamp(distance / max, 0, 1);
+    const deadzone = slot === 'first' ? 0.24 : 0.08;
+    const outputMagnitude = rawMagnitude <= deadzone ? 0 : (rawMagnitude - deadzone) / (1 - deadzone);
     const mag = Math.min(max, distance);
     knob.style.left = `calc(50% + ${n.x * mag}px)`;
     knob.style.top = `calc(50% + ${n.y * mag}px)`;
-    state.vectorX = n.x * clamp(distance / max, 0, 1);
-    state.vectorY = n.y * clamp(distance / max, 0, 1);
+    state.vectorX = n.x * outputMagnitude;
+    state.vectorY = n.y * outputMagnitude;
     syncTouchControlRoles();
   }
 
@@ -2777,20 +2836,6 @@
     state.startTime = 0;
     state.maxDistance = 0;
     resetStickVisual(base, knob);
-  }
-
-  function promoteSecondStick() {
-    const second = game.joystick.second;
-    if (!second.active) return;
-    const promoted = { ...second };
-    const centerX = promoted.originX;
-    const centerY = promoted.originY;
-    clearStick('second');
-    game.joystick.first = promoted;
-    placeStickAt(joystickBase, centerX, centerY);
-    const max = Math.max(38, (joystickBase.offsetWidth || 126) * 0.43);
-    joystickKnob.style.left = `calc(50% + ${promoted.vectorX * max}px)`;
-    joystickKnob.style.top = `calc(50% + ${promoted.vectorY * max}px)`;
   }
 
   function registerAimFlick(direction) {
@@ -2828,9 +2873,10 @@
 
     const beginJoy = (clientX, clientY, pointerId = 'touch') => {
       if (!game.running || game.paused) return false;
-      const slot = !game.joystick.first.active ? 'first' : !game.joystick.second.active ? 'second' : null;
-      if (!slot) return false;
+      // Screen half permanently determines the stick role: left MOVE, right AIM.
+      const slot = clientX < window.innerWidth / 2 ? 'first' : 'second';
       const state = game.joystick[slot];
+      if (state.active) return false;
       state.pointerId = pointerId;
       state.active = true;
       state.vectorX = 0;
@@ -2864,10 +2910,6 @@
     const endJoy = (pointerId = 'touch', clientX = null, clientY = null) => {
       const slot = findStickSlot(pointerId);
       if (!slot) return;
-      const rolesBeforeRelease = twinStickRoles();
-      const wasTwin = !!rolesBeforeRelease;
-      const movementSlot = wasTwin ? rolesBeforeRelease.move : slot;
-      const aimSlot = wasTwin ? rolesBeforeRelease.aim : null;
       const state = game.joystick[slot];
       if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
         state.lastX = clientX;
@@ -2880,14 +2922,17 @@
       const swipeY = state.lastY - state.startY;
       const swipeDistance = Math.max(state.maxDistance, Math.hypot(swipeX, swipeY));
       const qualifiesAsFlick = elapsed <= DODGE.maxGestureMs && swipeDistance >= DODGE.minSwipe;
-      const shouldDodge = slot === movementSlot && qualifiesAsFlick;
-      const shouldRegisterAimFlick = slot === aimSlot && qualifiesAsFlick;
+      const shouldDodge = slot === 'first' && qualifiesAsFlick;
+      const shouldRegisterAimFlick = slot === 'second' && qualifiesAsFlick;
       const dodgeDir = Math.hypot(state.vectorX, state.vectorY) > 0.25 ? { x: state.vectorX, y: state.vectorY } : normalize(swipeX, swipeY);
       clearStick(slot);
-      if (slot === 'first' && game.joystick.second.active) promoteSecondStick();
       syncTouchControlRoles();
-      if (shouldDodge) { const worldDodge = screenVectorToWorld(dodgeDir.x, dodgeDir.y); attemptDodge(worldDodge.x, worldDodge.y); }
-      else if (shouldRegisterAimFlick) registerAimFlick(dodgeDir);
+      if (shouldDodge) {
+        const worldDodge = screenVectorToWorld(dodgeDir.x, dodgeDir.y);
+        attemptDodge(worldDodge.x, worldDodge.y);
+      } else if (shouldRegisterAimFlick) {
+        registerAimFlick(dodgeDir);
+      }
       if (!game.joystick.first.active && !game.joystick.second.active) resetJoystickVisual();
     };
 
@@ -4138,7 +4183,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();
