@@ -12,6 +12,8 @@
   const xpText = $('xpText');
   const staminaFill = $('staminaFill');
   const staminaText = $('staminaText');
+  const manaFill = $('manaFill');
+  const manaText = $('manaText');
   const locationText = $('locationText');
   const roomText = $('roomText');
   const toastEl = $('toast');
@@ -29,6 +31,7 @@
   const autoBtn = $('autoBtn');
   const potionBtn = $('potionBtn');
   const abilityBtn = $('abilityBtn');
+  const spellTray = $('spellTray');
   const magnetBtn = $('magnetBtn');
   const menuBtn = $('menuBtn');
   const modalBackdrop = $('modalBackdrop');
@@ -40,7 +43,7 @@
 
   const TAU = Math.PI * 2;
   const TICK = 1 / 60;
-  const SAVE_VERSION = 6;
+  const SAVE_VERSION = 7;
   const SAVE_PREFIX = 'dungeonCampPrototype_slot_';
   const SLOT_COUNT = 3;
   const DODGE = { maxStamina: 100, combatCost: 25, duration: 0.23, speed: 1120, minSwipe: 42, maxGestureMs: 330, doubleFlickMs: 460, regenPerSecond: 24, regenDelay: 0.65, chargeBonusDamage: 0.85, chargeKnockbackMult: 1.6 };
@@ -101,6 +104,26 @@
     boss: { name: 'The Horned Warden', hp: 950, speed: 54, damage: 18, radius: 72, mass: 8, color: '#70323c', xp: 380 },
   };
 
+
+  const SPELLS = {
+    fireball: { name: 'Fireball Volley', icon: '🔥', element: 'fire', tier: 'Low', mana: 22, price: 0, description: 'Channel a stream of aimed fireballs for 2.2 seconds. Each hit burns.' },
+    frostShards: { name: 'Frost Shards', icon: '❄', element: 'ice', tier: 'Low', mana: 24, price: 180, description: 'Launch three icy shards that damage and slow enemies.' },
+    stoneBurst: { name: 'Stone Burst', icon: '◆', element: 'earth', tier: 'Low', mana: 30, price: 240, description: 'Blast nearby enemies outward with a ring of stone.' },
+    mendingWisps: { name: 'Mending Wisps', icon: '✦', element: 'life', tier: 'Low', mana: 68, price: 420, description: 'Expensive, slow healing that restores a small amount over 10 seconds.' },
+    rejuvenation: { name: 'Rejuvenation', icon: '✧', element: 'life', tier: 'Medium', mana: 82, price: 1100, description: 'Restore a moderate amount of health over six seconds.' },
+    flameWave: { name: 'Flame Wave', icon: '♨', element: 'fire', tier: 'Medium', mana: 45, price: 680, description: 'Scorch a wide cone and leave burning ground behind.' },
+    iceNova: { name: 'Ice Nova', icon: '✣', element: 'ice', tier: 'Medium', mana: 50, price: 760, description: 'Freeze and damage every nearby enemy.' },
+    tidalSurge: { name: 'Tidal Surge', icon: '≈', element: 'water', tier: 'Medium', mana: 46, price: 720, description: 'Fire a broad surge that batters enemies backward.' },
+    arcaneBarrier: { name: 'Arcane Barrier', icon: '⬡', element: 'arcane', tier: 'Medium', mana: 58, price: 900, description: 'Create a five-second ward that destroys projectiles and keeps enemies away.' },
+    meteor: { name: 'Meteor', icon: '☄', element: 'fire', tier: 'High', mana: 82, price: 1900, description: 'Call down a devastating delayed impact that ignites the floor.' },
+    glacialPrison: { name: 'Glacial Prison', icon: '◇', element: 'ice', tier: 'High', mana: 78, price: 2050, description: 'Lock nearby enemies in supernatural cold for several seconds.' },
+    earthquake: { name: 'Earthquake', icon: '✹', element: 'earth', tier: 'High', mana: 76, price: 2200, description: 'Release repeated ground shocks around you.' },
+    silenceField: { name: 'Silence Field', icon: 'Ø', element: 'arcane', tier: 'High', mana: 72, price: 2400, description: 'Erase hostile projectiles and prevent enemies from firing for six seconds.' },
+    greaterRestoration: { name: 'Greater Restoration', icon: '✺', element: 'life', tier: 'High', mana: 96, price: 2800, description: 'Rapidly restore a large portion of health over three seconds.' },
+  };
+  const SPELL_ORDER = ['fireball','frostShards','stoneBurst','mendingWisps','flameWave','iceNova','tidalSurge','rejuvenation','arcaneBarrier','meteor','glacialPrison','earthquake','silenceField','greaterRestoration'];
+  const SPELL_SWAP_COOLDOWN_MS = 15000;
+
   const MATERIALS = {
     zombie: { id: 'zombie_tooth', name: 'Zombie Tooth' },
     skeleton: { id: 'old_bone', name: 'Old Bone' },
@@ -121,6 +144,7 @@
     enemies: [],
     projectiles: [],
     areaEffects: [],
+    spellEffects: [],
     drops: [],
     particles: [],
     roomFeatures: [],
@@ -147,6 +171,7 @@
     lootMagnetTimer: 0,
     cameraShake: { time: 0, intensity: 0 },
     aimFlick: { time: 0, x: 0, y: 0 },
+    spellTraySignature: '',
   };
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -217,6 +242,10 @@
       coins: 120,
       stats: { strength: 5, defense: 4, vitality: 5, agility: 4 },
       abilities: { doubleStrike: 0, arcBoost: 0, reachBoost: 0, attackSpeed: 0, knockback: 0, regen: 0, whirlwind: 1 },
+      knownSpells: ['fireball'],
+      equippedSpells: ['fireball', null, null, null, null],
+      spellSwapAvailableAt: 0,
+      bagUpgrades: 0,
       skills: {
         mining: { level: 1, xp: 0 }, smithing: { level: 1, xp: 0 },
         fishing: { level: 1, xp: 0 }, woodcutting: { level: 1, xp: 0 },
@@ -236,7 +265,7 @@
       maxFloorUnlocked: 1,
       floors: {},
       settings: { handedness: 'standard', joystick: 'fixed', controlScale: 1, viewMode: 'isometric' },
-      campNpcs: generateCampNpcs(),
+      campNpcs: [...generateCampNpcs(), ...generateServiceNpcs()],
       quests: [],
       completedQuests: 0,
       deaths: 0,
@@ -258,6 +287,8 @@
       Collector: { chestStyle: 'leather', weapon: choose(['spear', 'sword']), helmet: choose(['none', 'hood', 'openHelm']), shield: chance(.45) },
       Historian: { chestStyle: choose(['robe', 'leather']), weapon: choose(['staff', 'sword']), helmet: choose(['none', 'hood']), shield: chance(.25) },
       Traveler: { chestStyle: choose(['leather', 'plate', 'robe']), weapon: choose(['sword', 'spear', 'hammer', 'dagger']), helmet: choose(['none', 'hood', 'openHelm']), shield: chance(.35) },
+      Mage: { chestStyle: 'robe', weapon: 'staff', helmet: choose(['hood', 'none']), shield: false },
+      Blacksmith: { chestStyle: 'apron', weapon: 'hammer', helmet: choose(['openHelm', 'cap']), shield: false },
     };
     const gear = roleGear[role] || roleGear.Traveler;
     return {
@@ -272,6 +303,49 @@
       boots: choose(['#30251f', '#453124', '#282b2d']),
       hairStyle: choose(['short', 'long', 'crest', 'bald']),
     };
+  }
+
+  function generateServiceNpcs() {
+    return [
+      {
+        id: uid('npc'), name: 'Ilyra', role: 'Mage', serviceType: 'mage',
+        x: 555, y: 555, homeX: 555, homeY: 555, wanderRadius: 115,
+        vx: 10, vy: -7, wanderTimer: 1.2, facingX: 1, facingY: 0,
+        appearance: generateCampNpcAppearance('Mage'), locked: true,
+      },
+      {
+        id: uid('npc'), name: 'Bram', role: 'Blacksmith', serviceType: 'bagSmith',
+        x: 1265, y: 590, homeX: 1265, homeY: 590, wanderRadius: 105,
+        vx: -8, vy: 6, wanderTimer: 2.1, facingX: -1, facingY: 0,
+        appearance: generateCampNpcAppearance('Blacksmith'), locked: true,
+      },
+    ];
+  }
+
+  function ensureCampServices(character) {
+    character.campNpcs ||= [];
+    let changed = false;
+    for (const service of generateServiceNpcs()) {
+      if (character.campNpcs.some(npc => npc.serviceType === service.serviceType)) continue;
+      character.campNpcs.push(service);
+      changed = true;
+    }
+    return changed;
+  }
+
+  function spellSlotsUnlocked(level = game.character?.level || 1) {
+    return clamp(1 + Math.floor(Math.max(0, level) / 10), 1, 5);
+  }
+
+  function normalizeMagic(character) {
+    character.knownSpells = Array.isArray(character.knownSpells) ? character.knownSpells.filter(id => SPELLS[id]) : [];
+    if (!character.knownSpells.includes('fireball')) character.knownSpells.unshift('fireball');
+    character.equippedSpells = Array.isArray(character.equippedSpells) ? character.equippedSpells.slice(0, 5) : ['fireball'];
+    while (character.equippedSpells.length < 5) character.equippedSpells.push(null);
+    character.equippedSpells = character.equippedSpells.map(id => character.knownSpells.includes(id) ? id : null);
+    if (!character.equippedSpells[0]) character.equippedSpells[0] = 'fireball';
+    character.spellSwapAvailableAt = Number(character.spellSwapAvailableAt) || 0;
+    character.bagUpgrades = Number(character.bagUpgrades) || Math.max(0, Math.round(((character.inventoryCapacity || 30) - 30) / 5));
   }
 
   function ensureCampNpcAppearances(npcs) {
@@ -372,7 +446,7 @@
   function saveGame(showMessage = false) {
     if (!game.character || game.slot == null) return;
     game.character.lastPlayed = Date.now();
-    if (game.player) game.character.currentHealth = Math.round(game.player.health);
+    if (game.player) { game.character.currentHealth = Math.round(game.player.health); game.character.currentMana = Math.round(game.player.mana); }
     const persisted = writeStoredValue(saveKey(game.slot), JSON.stringify(game.character));
     if (showMessage) toast(persisted ? 'Game saved.' : 'Saved for this play session only.');
     if (!persisted && !storageWarningShown) {
@@ -468,7 +542,9 @@
     game.character.settings.viewMode ||= 'isometric';
     normalizeEquipment(game.character);
     normalizeFloorPersistence(game.character);
+    normalizeMagic(game.character);
     game.character.campNpcs ||= generateCampNpcs();
+    ensureCampServices(game.character);
     ensureCampNpcAppearances(game.character.campNpcs);
     game.character.quests ||= [];
     game.character.floors ||= {};
@@ -492,6 +568,7 @@
     return {
       x, y, vx: 0, vy: 0, radius: 22,
       health: stored, maxHealth,
+      mana: Math.max(1, Math.min(derived.maxMana, Number(game.character.currentMana) || derived.maxMana)), maxMana: derived.maxMana,
       facing: { x: 0, y: -1 },
       attackCooldown: 0,
       attack: null,
@@ -506,6 +583,7 @@
       burnTimer: 0, burnTick: 0,
       poisonTimer: 0, poisonTick: 0,
       confusionTimer: 0, slowTimer: 0,
+      healOverTime: null, barrierTimer: 0, silenceTimer: 0, spellCast: null,
     };
   }
 
@@ -516,7 +594,7 @@
       defense: c.stats.defense,
       vitality: c.stats.vitality,
       agility: c.stats.agility,
-      damage: 0, armor: 0, maxHealth: 75 + c.stats.vitality * 7,
+      damage: 0, armor: 0, maxHealth: 75 + c.stats.vitality * 7, maxMana: 86 + c.level * 4 + c.stats.vitality * 2,
       speed: (200 + c.stats.agility * 4) * PLAYER_SPEED_MULTIPLIER,
       attackSpeedMult: 1 + (c.abilities.attackSpeed || 0) * 0.06,
       knockbackMult: 1 + (c.abilities.knockback || 0) * 0.12,
@@ -571,11 +649,13 @@
     game.enemies = [];
     game.projectiles = [];
     game.areaEffects = [];
+    game.spellEffects = [];
     game.drops = [];
     game.roomFeatures = [];
     game.roomWorld = { w: 1800, h: 1400 };
     game.player = createPlayer(900, 1040);
     game.player.health = Math.max(game.player.health, Math.round(game.player.maxHealth * 0.6));
+    game.player.mana = game.player.maxMana;
     game.character.currentHealth = game.player.health;
     game.campNpcs = game.character.campNpcs;
     game.pendingVictory = false;
@@ -712,6 +792,7 @@
     game.enemies = [];
     game.projectiles = [];
     game.areaEffects = [];
+    game.spellEffects = [];
     room.groundDrops ||= [];
     game.drops = room.groundDrops;
     for (const drop of game.drops) {
@@ -873,6 +954,7 @@
     if (game.scene === 'camp') updateCamp(dt);
     else updateDungeon(dt);
     updateAreaEffects(dt);
+    updateSpellEffects(dt);
     updateProjectiles(dt);
     updateDrops(dt);
     updateParticles(dt);
@@ -984,6 +1066,7 @@
     p.attackCooldown = Math.max(0, p.attackCooldown - dt);
     p.abilityCooldown = Math.max(0, p.abilityCooldown - dt);
     p.invuln = Math.max(0, p.invuln - dt);
+    updatePlayerMagic(dt);
 
     if (((game.autoAttack && isAutoAttackThreatActive()) || game.input.manualHeld) && p.attackCooldown <= 0 && game.scene === 'dungeon') requestAttack();
     updateAttack(dt);
@@ -1219,8 +1302,20 @@
         npc.vx = dir.x * rand(12, 32);
         npc.vy = dir.y * rand(12, 32);
       }
-      npc.x = clamp(npc.x + npc.vx * dt, 260, 1540);
-      npc.y = clamp(npc.y + npc.vy * dt, 570, 1160);
+      npc.x += npc.vx * dt;
+      npc.y += npc.vy * dt;
+      if (npc.homeX != null && npc.homeY != null) {
+        const radius = npc.wanderRadius || 110;
+        const offset = normalize(npc.x - npc.homeX, npc.y - npc.homeY);
+        const homeDistance = dist(npc.x, npc.y, npc.homeX, npc.homeY);
+        if (homeDistance > radius) {
+          npc.x = npc.homeX + offset.x * radius;
+          npc.y = npc.homeY + offset.y * radius;
+          npc.vx *= -0.55; npc.vy *= -0.55;
+        }
+      }
+      npc.x = clamp(npc.x, 260, 1540);
+      npc.y = clamp(npc.y, 520, 1160);
       if (Math.hypot(npc.vx, npc.vy) > 2) {
         const facing = normalize(npc.vx, npc.vy);
         npc.facingX = facing.x;
@@ -1347,7 +1442,7 @@
 
   function damageCircle(x, y, radius, damage, sourceId = null, status = null, statusDuration = 0) {
     const p = game.player;
-    if (p && dist(x, y, p.x, p.y) <= radius + p.radius) {
+    if (sourceId !== 'player' && p && dist(x, y, p.x, p.y) <= radius + p.radius) {
       damagePlayer(damage, x, y);
       if (status) applyPlayerStatus(status, statusDuration);
     }
@@ -1369,7 +1464,7 @@
         if (effect.tick <= 0) {
           effect.tick = 0.48;
           const status = effect.element === 'fire' ? 'burn' : effect.element === 'poison' ? 'poison' : 'slow';
-          if (p && dist(effect.x, effect.y, p.x, p.y) <= effect.radius + p.radius) {
+          if (effect.sourceId !== 'player' && p && dist(effect.x, effect.y, p.x, p.y) <= effect.radius + p.radius) {
             if (effect.element !== 'web') damagePlayer(effect.damage, effect.x, effect.y);
             applyPlayerStatus(status, effect.element === 'web' ? 0.5 : 2.6);
           }
@@ -1714,16 +1809,26 @@
       e.x = clamp(e.x + e.vx * dt, e.radius + 32, game.roomWorld.w - e.radius - 32);
       e.y = clamp(e.y + e.vy * dt, e.radius + 32, game.roomWorld.h - e.radius - 32);
 
-      if (dist(e.x, e.y, p.x, p.y) < e.radius + p.radius && e.contactCooldown <= 0) {
+      if (dist(e.x, e.y, p.x, p.y) < e.radius + p.radius && e.contactCooldown <= 0 && p.barrierTimer <= 0) {
         e.contactCooldown = charging ? 0.95 : 0.72;
         damagePlayer(e.damage * (charging ? 2.15 : 1), e.x, e.y);
       }
     }
     game.enemies = game.enemies.filter(e => !e.dead || e.hitFlash > 0);
   }
-  function fireProjectile(x, y, vx, vy, damage, color, radius = 7, owner = 'enemy') {
-    const hp = 1;
-    game.projectiles.push({ id: uid('proj'), x, y, vx, vy, damage, color, radius, owner, life: owner === 'enemy' ? 10 : 7, hp, maxHp: hp, bounces: owner === 'enemy' ? 6 : 0, bounceGrace: 0 });
+  function fireProjectile(x, y, vx, vy, damage, color, radius = 7, owner = 'enemy', options = {}) {
+    if (owner === 'enemy' && game.player?.silenceTimer > 0) return null;
+    const hp = Math.max(1, Number(options.hp) || 1);
+    const projectile = {
+      id: uid('proj'), x, y, vx, vy, damage, color, radius, owner,
+      life: Number(options.life) || (owner === 'enemy' ? 10 : 7), hp, maxHp: hp,
+      bounces: options.bounces ?? (owner === 'enemy' ? 6 : 0), bounceGrace: 0,
+      status: options.status || null, statusDuration: Number(options.statusDuration) || 0,
+      knockback: Number(options.knockback) || 180, pierce: Number(options.pierce) || 0,
+      sourceSpell: options.sourceSpell || null,
+    };
+    game.projectiles.push(projectile);
+    return projectile;
   }
   function destroyProjectile(projectile) {
     if (!projectile || projectile.life <= 0) return;
@@ -1744,6 +1849,18 @@
         pr.life = 0;
         damagePlayer(pr.damage, pr.x, pr.y);
         continue;
+      }
+      if (pr.owner === 'player') {
+        for (const enemy of game.enemies) {
+          if (enemy.dead || dist(pr.x, pr.y, enemy.x, enemy.y) >= pr.radius + enemy.radius) continue;
+          const n = normalize(pr.vx, pr.vy);
+          hitEnemy(enemy, pr.damage, pr.knockback, n.x, n.y, { canCrit: false, color: pr.color });
+          if (pr.status === 'burn') { enemy.burnTimer = Math.max(enemy.burnTimer || 0, pr.statusDuration || 3); enemy.burnTick = 0.1; }
+          if (pr.status === 'slow') enemy.slowTimer = Math.max(enemy.slowTimer || 0, pr.statusDuration || 2.5);
+          if ((pr.pierce || 0) > 0) pr.pierce -= 1; else pr.life = 0;
+          break;
+        }
+        if (pr.life <= 0) continue;
       }
       let bounced = false;
       if (pr.x - pr.radius < wall && pr.vx < 0) { pr.x = wall + pr.radius; pr.vx = Math.abs(pr.vx); bounced = true; }
@@ -2062,6 +2179,7 @@
     else if (obj.kind === 'storage') showStorageChest();
     else if (obj.kind === 'campfire') {
       game.player.health = game.player.maxHealth;
+      game.player.mana = game.player.maxMana;
       game.character.currentHealth = game.player.health;
       toast('You rest by the fire and recover fully.');
       saveGame();
@@ -2132,6 +2250,9 @@
   }
 
   function showNpc(npc) {
+    if (npc.serviceType === 'mage') { showMageShop(); return; }
+    if (npc.serviceType === 'bagSmith') { showBagSmith(); return; }
+    if (!npc.quest) { toast(`${npc.name} has nothing to offer right now.`); return; }
     const accepted = game.character.quests.some(q => q.id === npc.quest.id);
     const count = campOwnedItemCount(npc.quest.itemId);
     const complete = accepted && count >= npc.quest.amount;
@@ -2481,6 +2602,7 @@
     const dungeonActions = game.scene === 'dungeon' ? `<button id="leaveBtn" class="panel-btn danger">Leave Dungeon</button>` : '';
     showModal('Game Menu', `<div class="menu-grid">
       <button id="inventoryBtn" class="panel-btn">Inventory & Equipment</button>
+      <button id="spellsBtn" class="panel-btn">Spellbook & Loadout</button>
       <button id="statsBtn" class="panel-btn">Character & Skills</button>
       <button id="questsBtn" class="panel-btn">Quest Log</button>
       <button id="settingsBtn" class="panel-btn">Settings</button>
@@ -2489,6 +2611,7 @@
       <button id="titleBtn" class="panel-btn">Save & Return to Title</button>
     </div>`);
     $('inventoryBtn').addEventListener('click', showInventory);
+    $('spellsBtn').addEventListener('click', () => showSpellLoadout(0));
     $('statsBtn').addEventListener('click', showStats);
     $('questsBtn').addEventListener('click', showQuests);
     $('settingsBtn').addEventListener('click', showSettings);
@@ -2568,6 +2691,7 @@
     const paperSlots = EQUIPMENT_SLOTS.map(equipmentSlotHtml).join('');
     showModal('Inventory & Equipment', `
       <p>${c.inventory.length}/${c.inventoryCapacity} slots · ${c.coins} coins</p>
+      <button id="inventorySpellsBtn" class="panel-btn wide-action">Spellbook & Loadout</button>
       <div class="section-title">Equipped</div>
       <div class="paper-doll-shell">
         <div class="paper-doll-silhouette" aria-hidden="true"><span class="sil-head"></span><span class="sil-body"></span><span class="sil-arm left"></span><span class="sil-arm right"></span><span class="sil-leg left"></span><span class="sil-leg right"></span></div>
@@ -2578,6 +2702,7 @@
       <p class="muted">Equipment is grouped by slot and ordered strongest to weakest. Materials, quest items, and consumables stay in their own sections.</p>
       ${renderCollectionGroups(c.inventory, 'equip')}
     `);
+    $('inventorySpellsBtn')?.addEventListener('click', () => showSpellLoadout(0));
     modalBody.querySelectorAll('.equip-item').forEach(btn => btn.addEventListener('click', () => equipInventoryIndex(Number(btn.dataset.i))));
     modalBody.querySelectorAll('.unequip').forEach(btn => btn.addEventListener('click', () => unequipSlot(btn.dataset.slot)));
     modalBody.querySelectorAll('.drop-item').forEach(btn => btn.addEventListener('click', () => dropInventoryIndex(Number(btn.dataset.i))));
@@ -3015,6 +3140,7 @@
       if (key === 'q') toggleAutoAttack();
       if (key === 'i') showInventory();
       if (key === 'm') showMap();
+      if (/^[1-5]$/.test(key)) castEquippedSpell(Number(key) - 1);
       if (key === 'escape' && game.running) modalBackdrop.classList.contains('hidden') ? showMainMenu() : hideModal();
     });
     window.addEventListener('keyup', (e) => game.input.keys.delete(e.key.toLowerCase()));
@@ -3194,6 +3320,274 @@
     toast(`Auto-attack ${game.autoAttack ? 'enabled' : 'disabled'}.`);
   }
 
+  function spellDamage(multiplier = 1) {
+    return (12 + game.character.level * 2.4 + getDerivedStats().strength * 0.55) * multiplier;
+  }
+
+  function updatePlayerMagic(dt) {
+    const p = game.player;
+    p.maxMana = getDerivedStats().maxMana;
+    p.mana = Math.min(p.maxMana, p.mana + (game.scene === 'camp' ? 18 : 6.5) * dt);
+    p.barrierTimer = Math.max(0, (p.barrierTimer || 0) - dt);
+    p.silenceTimer = Math.max(0, (p.silenceTimer || 0) - dt);
+    if (p.healOverTime) {
+      p.healOverTime.time -= dt;
+      p.healOverTime.tick -= dt;
+      if (p.healOverTime.tick <= 0) {
+        p.healOverTime.tick += .5;
+        p.health = Math.min(p.maxHealth, p.health + p.healOverTime.amountPerTick);
+        game.particles.push({ type: 'text', x: p.x, y: p.y - 34, text: `+${Math.round(p.healOverTime.amountPerTick)}`, t: 0, duration: .55, color: '#8fe8a2' });
+      }
+      if (p.healOverTime.time <= 0) p.healOverTime = null;
+    }
+    if (p.barrierTimer > 0) {
+      for (const projectile of game.projectiles) {
+        if (projectile.owner === 'enemy' && projectile.life > 0 && dist(projectile.x, projectile.y, p.x, p.y) < 175 + projectile.radius) destroyProjectile(projectile);
+      }
+      for (const enemy of game.enemies) {
+        if (enemy.dead) continue;
+        const d = dist(enemy.x, enemy.y, p.x, p.y);
+        if (d < 175 + enemy.radius && d > .1) {
+          const n = normalize(enemy.x - p.x, enemy.y - p.y);
+          enemy.vx += n.x * 920 * dt;
+          enemy.vy += n.y * 920 * dt;
+        }
+      }
+    }
+    if (!p.spellCast) return;
+    const cast = p.spellCast;
+    cast.time -= dt;
+    cast.tick -= dt;
+    if (cast.id === 'fireball' && cast.tick <= 0) {
+      cast.tick += .28;
+      const dir = normalize(p.facing.x, p.facing.y);
+      fireProjectile(p.x + dir.x * 34, p.y + dir.y * 34, dir.x * 520, dir.y * 520, spellDamage(.62), '#ff7a39', 10, 'player', { status: 'burn', statusDuration: 3.2, knockback: 135, sourceSpell: 'fireball' });
+      game.particles.push({ type: 'ring', x: p.x + dir.x * 28, y: p.y + dir.y * 28, r: 2, maxR: 18, t: 0, duration: .13, color: '#ffb45f' });
+    } else if (cast.id === 'earthquake' && cast.tick <= 0) {
+      cast.tick += .45;
+      cast.pulses -= 1;
+      const radius = 210 + (5 - cast.pulses) * 34;
+      for (const enemy of game.enemies) {
+        if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > radius + enemy.radius) continue;
+        hitEnemy(enemy, spellDamage(.48), 330, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#d7b06d' });
+        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 1.1);
+      }
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 20, maxR: radius, t: 0, duration: .32, color: '#d7b06d' });
+      addCameraShake(5, .16);
+      if (cast.pulses <= 0) cast.time = 0;
+    }
+    if (cast.time <= 0) p.spellCast = null;
+  }
+
+  function updateSpellEffects(dt) {
+    for (const effect of game.spellEffects) {
+      effect.time -= dt;
+      if (effect.type === 'meteor') {
+        effect.pulse = (effect.pulse || 0) + dt;
+        if (!effect.triggered && effect.time <= 0) {
+          effect.triggered = true;
+          createBlastTelegraph('fire', effect.x, effect.y, 205, .05, spellDamage(2.4), 'player', { hazardDuration: 7.5, statusDuration: 4.2 });
+          addCameraShake(12, .42);
+        }
+      }
+    }
+    game.spellEffects = game.spellEffects.filter(effect => effect.time > -0.25 && !effect.triggered);
+  }
+
+  function castEquippedSpell(slotIndex) {
+    const unlocked = spellSlotsUnlocked();
+    if (slotIndex < 0 || slotIndex >= unlocked) { toast(`Spell slot ${slotIndex + 1} unlocks at level ${slotIndex * 10}.`); return false; }
+    const spellId = game.character.equippedSpells?.[slotIndex];
+    if (!spellId) { toast('That spell slot is empty.'); return false; }
+    return castSpell(spellId);
+  }
+
+  function castSpell(spellId) {
+    const spell = SPELLS[spellId];
+    const p = game.player;
+    if (!spell || !p) return false;
+    if (game.scene !== 'dungeon') { toast('Spells are prepared at camp and cast inside the dungeon.'); return false; }
+    if (p.mana < spell.mana) { toast(`Not enough mana for ${spell.name}.`); return false; }
+    if (p.spellCast && (spellId === 'fireball' || spellId === 'earthquake')) { toast('You are already channeling a spell.'); return false; }
+    p.mana -= spell.mana;
+    const dir = normalize(p.facing.x, p.facing.y);
+    const damage = spellDamage();
+    if (spellId === 'fireball') {
+      p.spellCast = { id: spellId, time: 2.2, tick: 0 };
+    } else if (spellId === 'frostShards') {
+      const base = Math.atan2(dir.y, dir.x);
+      for (const offset of [-.16, 0, .16]) {
+        const angle = base + offset;
+        fireProjectile(p.x, p.y, Math.cos(angle) * 480, Math.sin(angle) * 480, damage * .72, '#9bd9ff', 9, 'player', { status: 'slow', statusDuration: 3.1, knockback: 120, sourceSpell: spellId });
+      }
+    } else if (spellId === 'stoneBurst') {
+      for (const enemy of game.enemies) {
+        if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > 245 + enemy.radius) continue;
+        hitEnemy(enemy, damage * .85, 720, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#d4b27a' });
+      }
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 18, maxR: 250, t: 0, duration: .38, color: '#d4b27a' });
+    } else if (spellId === 'mendingWisps') {
+      p.healOverTime = { time: 10, tick: .1, amountPerTick: Math.max(.75, p.maxHealth * .0075) };
+    } else if (spellId === 'rejuvenation') {
+      p.healOverTime = { time: 6, tick: .1, amountPerTick: Math.max(1.2, p.maxHealth * .018) };
+    } else if (spellId === 'flameWave') {
+      const angle = Math.atan2(dir.y, dir.x);
+      const cone = { x: p.x, y: p.y, angle, range: 410, arc: Math.PI * .52 };
+      for (const enemy of game.enemies) {
+        if (enemy.dead || !pointInCone(enemy.x, enemy.y, cone, enemy.radius)) continue;
+        hitEnemy(enemy, damage * 1.05, 320, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#ff8a4c' });
+        enemy.burnTimer = Math.max(enemy.burnTimer || 0, 4.2); enemy.burnTick = .1;
+      }
+      for (let i = 1; i <= 3; i++) createGroundHazard('fire', p.x + dir.x * i * 105, p.y + dir.y * i * 105, 78, 5.5, Math.max(2, damage * .09), 'player');
+    } else if (spellId === 'iceNova') {
+      for (const enemy of game.enemies) {
+        if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > 330 + enemy.radius) continue;
+        hitEnemy(enemy, damage * .8, 190, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#b9e8ff' });
+        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 4.5);
+      }
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 25, maxR: 340, t: 0, duration: .5, color: '#b9e8ff' });
+    } else if (spellId === 'tidalSurge') {
+      const base = Math.atan2(dir.y, dir.x);
+      for (const offset of [-.09, 0, .09]) {
+        const angle = base + offset;
+        fireProjectile(p.x, p.y, Math.cos(angle) * 390, Math.sin(angle) * 390, damage * .58, '#63c7df', 19, 'player', { knockback: 720, pierce: 2, sourceSpell: spellId });
+      }
+    } else if (spellId === 'arcaneBarrier') {
+      p.barrierTimer = 5;
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 30, maxR: 175, t: 0, duration: .45, color: '#b899ff' });
+    } else if (spellId === 'meteor') {
+      const tx = clamp(p.x + dir.x * 420, 120, game.roomWorld.w - 120);
+      const ty = clamp(p.y + dir.y * 420, 120, game.roomWorld.h - 120);
+      game.spellEffects.push({ type: 'meteor', x: tx, y: ty, time: 1.05, duration: 1.05 });
+    } else if (spellId === 'glacialPrison') {
+      for (const enemy of game.enemies) {
+        if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > 520 + enemy.radius) continue;
+        hitEnemy(enemy, damage * .72, 80, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#d6f3ff' });
+        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 7.5);
+        enemy.vx *= .12; enemy.vy *= .12;
+      }
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 40, maxR: 525, t: 0, duration: .65, color: '#d6f3ff' });
+    } else if (spellId === 'earthquake') {
+      p.spellCast = { id: spellId, time: 2.25, tick: 0, pulses: 5 };
+    } else if (spellId === 'silenceField') {
+      p.silenceTimer = 6;
+      for (const projectile of game.projectiles) if (projectile.owner === 'enemy') destroyProjectile(projectile);
+      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 28, maxR: 470, t: 0, duration: .65, color: '#d7b7ff' });
+    } else if (spellId === 'greaterRestoration') {
+      p.healOverTime = { time: 3, tick: .1, amountPerTick: Math.max(2, p.maxHealth * .04) };
+    }
+    toast(`${spell.name} cast.`, 900);
+    return true;
+  }
+
+  function spellSwapRemainingMs() {
+    return Math.max(0, (game.character.spellSwapAvailableAt || 0) - Date.now());
+  }
+
+  function equipSpellToSlot(spellId, slotIndex) {
+    if (!game.character.knownSpells.includes(spellId)) return;
+    if (slotIndex >= spellSlotsUnlocked()) return;
+    const remaining = spellSwapRemainingMs();
+    if (remaining > 0) { toast(`Spell swapping ready in ${(remaining / 1000).toFixed(1)}s.`); return; }
+    const equipped = game.character.equippedSpells;
+    const existing = equipped.indexOf(spellId);
+    if (existing === slotIndex) return;
+    if (existing >= 0) equipped[existing] = equipped[slotIndex] || null;
+    equipped[slotIndex] = spellId;
+    game.character.spellSwapAvailableAt = Date.now() + SPELL_SWAP_COOLDOWN_MS;
+    game.spellTraySignature = '';
+    saveGame();
+    toast(`${SPELLS[spellId].name} equipped to slot ${slotIndex + 1}.`);
+    showSpellLoadout(slotIndex);
+  }
+
+  function showSpellLoadout(selectedSlot = 0) {
+    normalizeMagic(game.character);
+    const unlocked = spellSlotsUnlocked();
+    selectedSlot = clamp(selectedSlot, 0, unlocked - 1);
+    const remaining = spellSwapRemainingMs();
+    const slots = Array.from({ length: unlocked }, (_, index) => {
+      const id = game.character.equippedSpells[index];
+      const spell = SPELLS[id];
+      return `<button class="loadout-slot ${index === selectedSlot ? 'selected' : ''}" data-slot="${index}"><span>${spell?.icon || '+'}</span><b>${spell?.name || `Empty Slot ${index + 1}`}</b><small>Slot ${index + 1}</small></button>`;
+    }).join('');
+    const cards = game.character.knownSpells.map(id => {
+      const spell = SPELLS[id];
+      const active = game.character.equippedSpells[selectedSlot] === id;
+      return `<button class="spellbook-card element-${spell.element} ${active ? 'equipped' : ''}" data-spell="${id}" ${remaining > 0 ? 'disabled' : ''}><span class="spell-rune">${spell.icon}</span><strong>${spell.name}</strong><small>${spell.tier} · ${spell.mana} MP</small><p>${spell.description}</p></button>`;
+    }).join('');
+    showModal('Spellbook & Loadout', `
+      <div class="spell-loadout-summary"><span><b>${unlocked}</b> spell slot${unlocked === 1 ? '' : 's'}</span><span><b>${game.character.knownSpells.length}</b> learned</span><span>${remaining > 0 ? `<b>${(remaining / 1000).toFixed(1)}s</b> swap lock` : '<b>Ready</b> to swap'}</span></div>
+      <div class="spell-loadout-slots">${slots}</div>
+      <div class="section-title">Choose a spell for slot ${selectedSlot + 1}</div>
+      <div class="spellbook-grid">${cards}</div>
+      <p class="muted">New slots unlock at levels 10, 20, 30, and 40. Every loadout change starts a 15-second swap lock.</p>
+    `);
+    modalBody.querySelectorAll('.loadout-slot').forEach(btn => btn.addEventListener('click', () => showSpellLoadout(Number(btn.dataset.slot))));
+    modalBody.querySelectorAll('.spellbook-card').forEach(btn => btn.addEventListener('click', () => equipSpellToSlot(btn.dataset.spell, selectedSlot)));
+  }
+
+  function showMageShop() {
+    normalizeMagic(game.character);
+    const unowned = SPELL_ORDER.filter(id => !game.character.knownSpells.includes(id));
+    const tiers = ['Low','Medium','High'];
+    showModal('Ilyra · Camp Mage', `
+      <div class="vendor-banner mage-banner"><span>✦</span><div><strong>Arcane Training</strong><small>${game.character.coins} gold · ${game.character.knownSpells.length}/${SPELL_ORDER.length} spells learned</small></div></div>
+      ${tiers.map(tier => {
+        const ids = unowned.filter(id => SPELLS[id].tier === tier);
+        if (!ids.length) return '';
+        return `<div class="section-title">${tier} Magic</div><div class="spell-shop-grid">${ids.map(id => { const spell = SPELLS[id]; return `<div class="spell-shop-card element-${spell.element}"><span class="spell-rune">${spell.icon}</span><strong>${spell.name}</strong><small>${spell.element.toUpperCase()} · ${spell.mana} MP</small><p>${spell.description}</p><button class="buy-btn buy-spell" data-spell="${id}">${spell.price} gold</button></div>`; }).join('')}</div>`;
+      }).join('')}
+      ${unowned.length ? '' : '<p class="muted">You have learned every spell Ilyra can teach.</p>'}
+      <button id="openLoadoutFromMage" class="panel-btn wide-action">Manage Spell Loadout</button>
+    `);
+    modalBody.querySelectorAll('.buy-spell').forEach(btn => btn.addEventListener('click', () => {
+      const id = btn.dataset.spell;
+      const spell = SPELLS[id];
+      if (game.character.coins < spell.price) { toast('Not enough gold.'); return; }
+      game.character.coins -= spell.price;
+      game.character.knownSpells.push(id);
+      saveGame(); toast(`${spell.name} learned.`); showMageShop();
+    }));
+    $('openLoadoutFromMage').addEventListener('click', () => showSpellLoadout(0));
+  }
+
+  function bagUpgradePrice() {
+    return Math.round(125 * Math.pow(1.65, game.character.bagUpgrades || 0));
+  }
+
+  function showBagSmith() {
+    const price = bagUpgradePrice();
+    showModal('Bram · Pack Smith', `
+      <div class="vendor-banner smith-banner"><span>⚒</span><div><strong>Reinforce Your Pack</strong><small>${game.character.inventory.length}/${game.character.inventoryCapacity} slots used · ${game.character.coins} gold</small></div></div>
+      <div class="bag-upgrade-display"><div><small>CURRENT CAPACITY</small><strong>${game.character.inventoryCapacity}</strong></div><span>→</span><div><small>AFTER UPGRADE</small><strong>${game.character.inventoryCapacity + 5}</strong></div></div>
+      <button id="buyBagUpgrade" class="expedition-primary">ADD 5 SLOTS · ${price} GOLD</button>
+      <p class="muted">Each reinforcement is more expensive than the last.</p>
+    `);
+    $('buyBagUpgrade').addEventListener('click', () => {
+      if (game.character.coins < price) { toast('Not enough gold.'); return; }
+      game.character.coins -= price;
+      game.character.bagUpgrades = (game.character.bagUpgrades || 0) + 1;
+      game.character.inventoryCapacity += 5;
+      saveGame(); toast('Your pack can carry 5 more items.'); showBagSmith();
+    });
+  }
+
+  function renderSpellTray() {
+    if (!spellTray || !game.character) return;
+    const unlocked = spellSlotsUnlocked();
+    const signature = `${game.scene}|${unlocked}|${game.character.equippedSpells?.slice(0, unlocked).join(',')}|${Math.floor(game.player?.mana || 0)}`;
+    if (signature === game.spellTraySignature) return;
+    game.spellTraySignature = signature;
+    spellTray.innerHTML = Array.from({ length: unlocked }, (_, index) => {
+      const id = game.character.equippedSpells[index];
+      const spell = SPELLS[id];
+      const disabled = !spell || game.scene !== 'dungeon' || game.player.mana < spell.mana;
+      return `<button class="spell-slot-btn element-${spell?.element || 'empty'}" data-slot="${index}" ${disabled ? 'disabled' : ''} title="${spell ? `${spell.name} · ${spell.mana} MP` : 'Empty spell slot'}"><span>${spell?.icon || '+'}</span><small>${index + 1}</small></button>`;
+    }).join('');
+    spellTray.querySelectorAll('.spell-slot-btn').forEach(btn => btn.addEventListener('click', event => { event.preventDefault(); castEquippedSpell(Number(btn.dataset.slot)); }));
+  }
+
   function updateHud() {
     if (!game.character || !game.player) return;
     const p = game.player;
@@ -3204,6 +3598,8 @@
     xpText.textContent = `L${game.character.level} ${game.character.xp}/${need}`;
     staminaFill.style.width = `${clamp(p.stamina / p.maxStamina * 100, 0, 100)}%`;
     staminaText.textContent = `${Math.ceil(p.stamina)}/${p.maxStamina}`;
+    manaFill.style.width = `${clamp(p.mana / p.maxMana * 100, 0, 100)}%`;
+    manaText.textContent = `${Math.floor(p.mana)}/${Math.round(p.maxMana)}`;
     staminaFill.classList.toggle('free', !isCombatActive());
     if (game.scene === 'camp') {
       locationText.textContent = 'Expedition Camp';
@@ -3214,6 +3610,7 @@
       roomText.textContent = `${formatName(room.type)} room · ${Object.values(floor.rooms).filter(r => r.discovered).length}/${floor.roomCount}`;
     }
     abilityBtn.textContent = game.player.abilityCooldown > 0 ? game.player.abilityCooldown.toFixed(1) : 'Skill';
+    renderSpellTray();
   }
 
   function frame(time) {
@@ -3592,6 +3989,28 @@
     ctx.stroke(); ctx.restore();
     drawWeaponModel(hand, tip, a.weapon.weaponType || 'sword', accent, { attacking: true, alpha: behind ? 0.72 : 1 });
   }
+  function drawIsoSpellEffects() {
+    for (const effect of game.spellEffects) {
+      if (effect.type !== 'meteor') continue;
+      const progress = 1 - clamp(effect.time / effect.duration, 0, 1);
+      const pulse = 1 + Math.sin(performance.now() / 85) * .06;
+      drawIsoGroundEllipse(effect.x, effect.y, 205 * pulse, 205 * pulse, 'rgba(255,70,35,.10)', 'rgba(255,145,55,.86)', 6);
+      const point = worldToScreen(effect.x, effect.y, 80 + (1 - progress) * 260);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = '#ff9347'; ctx.shadowColor = '#ff5c32'; ctx.shadowBlur = 24;
+      ctx.beginPath(); ctx.arc(point.x, point.y, 18 + progress * 15, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    const p = game.player;
+    if (!p) return;
+    if (p.barrierTimer > 0) {
+      const pulse = 1 + Math.sin(performance.now() / 120) * .035;
+      drawIsoGroundEllipse(p.x, p.y, 175 * pulse, 175 * pulse, 'rgba(154,120,255,.055)', 'rgba(190,160,255,.72)', 5, 12);
+    }
+    if (p.silenceTimer > 0) drawIsoGroundEllipse(p.x, p.y, 470, 470, 'rgba(129,83,170,.025)', 'rgba(214,181,255,.25)', 3);
+  }
+
   function drawIsoAreaEffects() {
     const now = performance.now();
     for (const effect of game.areaEffects) {
@@ -3883,7 +4302,12 @@
 
     ctx.fillStyle = '#eee3cd'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(npc.name, p.x, feetY - 112);
-    if (npc.locked) { ctx.fillStyle = '#f4d45e'; ctx.font = 'bold 18px sans-serif'; ctx.fillText('!', p.x, feetY - 131); }
+    if (npc.serviceType) {
+      ctx.fillStyle = npc.serviceType === 'mage' ? '#c7a8ff' : '#e4b66d';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.fillText(npc.role.toUpperCase(), p.x, feetY - 126);
+    }
+    if (npc.locked && !npc.serviceType) { ctx.fillStyle = '#f4d45e'; ctx.font = 'bold 18px sans-serif'; ctx.fillText('!', p.x, feetY - 131); }
     ctx.restore();
   }
 
@@ -3957,6 +4381,7 @@
     drawIsoFloor(boss?'#28171d':'#272526',boss?'rgba(217,74,82,.10)':'rgba(207,190,157,.07)');
     if(boss){drawIsoGroundEllipse(game.roomWorld.w/2,game.roomWorld.h/2,520,520,null,'rgba(210,76,65,.32)',7);drawIsoGroundEllipse(game.roomWorld.w/2,game.roomWorld.h/2,850,850,null,'rgba(210,76,65,.22)',7);}
     drawIsoAreaEffects();
+    drawIsoSpellEffects();
     drawIsoWall('N',!room.cleared,false); drawIsoWall('W',!room.cleared,false);
     const drawables=[];
     for(const f of game.roomFeatures) drawables.push({kind:'feature',ref:f,depth:f.x+f.y});
@@ -4453,7 +4878,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, showMageShop, showBagSmith, showSpellLoadout, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();

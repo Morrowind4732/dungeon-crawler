@@ -376,3 +376,63 @@ input[type="text"] { width: 100%; min-height: 48px; font-size: 16px; border: 1px
 
 /* Context-sensitive right stick: visible as MOVE while safe, AIM during threats. */
 .secondary-stick-active .secondary-stick { opacity: 1; visibility: visible; }
+
+/* Patch 15: mana, spell casting, mage vendor, and pack upgrades */
+.bar-fill.mana { background: linear-gradient(90deg, #4b2c86, #a875e8); }
+.spell-tray { position: absolute; right: 0; top: -55px; display: flex; justify-content: flex-end; gap: 6px; width: 100%; pointer-events: auto; }
+.spell-slot-btn { position: relative; width: 42px; height: 42px; min-height: 42px; display: grid; place-items: center; padding: 0; border-radius: 11px; border: 2px solid rgba(255,255,255,.18); background: rgba(25,21,18,.88); color: #fff0d0; box-shadow: 0 5px 16px rgba(0,0,0,.42), inset 0 0 13px rgba(255,255,255,.04); }
+.spell-slot-btn span { font-size: 1.15rem; line-height: 1; text-shadow: 0 2px 5px #000; }
+.spell-slot-btn small { position: absolute; right: 3px; bottom: 1px; color: rgba(255,255,255,.68); font-size: .5rem; font-weight: 900; }
+.spell-slot-btn:disabled { opacity: .38; filter: grayscale(.4); }
+.reversed-controls .spell-tray { transform: scaleX(-1); }
+.element-fire { border-color: rgba(235,104,55,.55) !important; }
+.element-ice { border-color: rgba(126,205,241,.58) !important; }
+.element-water { border-color: rgba(71,176,213,.58) !important; }
+.element-earth { border-color: rgba(190,145,78,.58) !important; }
+.element-life { border-color: rgba(98,199,125,.58) !important; }
+.element-arcane { border-color: rgba(174,126,235,.62) !important; }
+.element-empty { border-style: dashed !important; opacity: .55; }
+
+.spell-loadout-summary { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.spell-loadout-summary > span { padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.035); color: var(--muted); text-align: center; font-size: .72rem; }
+.spell-loadout-summary b { display: block; color: var(--ink); font-size: 1rem; }
+.spell-loadout-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.loadout-slot { min-height: 82px; display: grid; grid-template-columns: 36px 1fr; grid-template-areas: 'icon name' 'icon slot'; align-items: center; gap: 1px 8px; padding: 9px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.035); color: var(--ink); text-align: left; }
+.loadout-slot span { grid-area: icon; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: rgba(0,0,0,.3); font-size: 1.2rem; }
+.loadout-slot b { grid-area: name; font-size: .76rem; }
+.loadout-slot small { grid-area: slot; color: var(--muted); font-size: .62rem; text-transform: uppercase; }
+.loadout-slot.selected { border-color: var(--gold); box-shadow: 0 0 14px rgba(217,170,85,.16); }
+.spellbook-grid, .spell-shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 9px; }
+.spellbook-card, .spell-shop-card { min-height: 165px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 12px; border: 2px solid rgba(255,255,255,.12); border-radius: 14px; background: linear-gradient(145deg, rgba(255,255,255,.06), rgba(0,0,0,.16)); color: var(--ink); text-align: left; }
+.spellbook-card { width: 100%; }
+.spellbook-card:disabled { opacity: .45; }
+.spellbook-card.equipped { box-shadow: inset 0 0 0 2px var(--gold), 0 0 16px rgba(217,170,85,.15); }
+.spell-rune { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: rgba(0,0,0,.3); font-size: 1.35rem; }
+.spellbook-card strong, .spell-shop-card strong { font-size: .86rem; }
+.spellbook-card small, .spell-shop-card small { color: var(--gold); font-size: .62rem; font-weight: 850; letter-spacing: .06em; }
+.spellbook-card p, .spell-shop-card p { flex: 1; margin: 2px 0 6px; color: var(--muted); font-size: .69rem; line-height: 1.35; }
+.spell-shop-card .buy-btn { width: 100%; min-height: 40px; text-align: center; }
+.vendor-banner { display: flex; align-items: center; gap: 13px; margin-bottom: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: radial-gradient(circle at 8% 50%, rgba(255,255,255,.1), transparent 34%), rgba(255,255,255,.035); }
+.vendor-banner > span { display: grid; place-items: center; width: 50px; height: 50px; flex: 0 0 auto; border-radius: 14px; background: rgba(0,0,0,.32); font-size: 1.55rem; }
+.vendor-banner strong, .vendor-banner small { display: block; }
+.vendor-banner small { margin-top: 3px; color: var(--muted); }
+.mage-banner { border-color: rgba(174,126,235,.38); }
+.smith-banner { border-color: rgba(224,157,71,.38); }
+.bag-upgrade-display { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; margin: 18px 0; }
+.bag-upgrade-display > div { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.035); text-align: center; }
+.bag-upgrade-display small { display: block; color: var(--muted); font-size: .6rem; font-weight: 850; letter-spacing: .1em; }
+.bag-upgrade-display strong { display: block; margin-top: 5px; color: var(--gold); font: 850 2.1rem/1 Georgia, serif; }
+.bag-upgrade-display > span { color: var(--gold); font-size: 1.8rem; }
+
+@media (max-width: 650px) {
+  .hud-left { gap: 2px; }
+  .bar-wrap { width: min(245px, 54vw); grid-template-columns: 21px 1fr auto; gap: 4px; font-size: .61rem; }
+  .spell-tray { top: -51px; gap: 4px; }
+  .spell-slot-btn { width: 38px; height: 38px; min-height: 38px; border-radius: 10px; }
+  .spell-slot-btn span { font-size: 1rem; }
+  .spell-loadout-summary { grid-template-columns: 1fr; }
+  .spellbook-grid, .spell-shop-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+  .spellbook-card, .spell-shop-card { min-height: 150px; padding: 9px; }
+  .bag-upgrade-display { gap: 8px; }
+  .bag-upgrade-display > div { padding: 12px 7px; }
+}
