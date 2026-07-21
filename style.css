@@ -436,3 +436,38 @@ input[type="text"] { width: 100%; min-height: 48px; font-size: 16px; border: 1px
   .bag-upgrade-display { gap: 8px; }
   .bag-upgrade-display > div { padding: 12px 7px; }
 }
+
+
+/* Patch 16: multi-tap casting and the dedicated ultimate slot */
+.spell-slot-btn small { max-width: 28px; overflow: hidden; white-space: nowrap; }
+.spell-slot-btn.ultimate-slot {
+  border-color: rgba(235,185,82,.82) !important;
+  background: radial-gradient(circle at 50% 38%, rgba(115,70,155,.72), rgba(37,24,42,.96) 72%);
+  box-shadow: 0 0 16px rgba(222,170,73,.24), 0 5px 16px rgba(0,0,0,.45), inset 0 0 14px rgba(255,224,142,.08);
+}
+.spell-slot-btn.ultimate-slot:not(:disabled) { animation: ultimate-ready-pulse 2.2s ease-in-out infinite; }
+.spell-slot-btn.ultimate-slot small { color: #ffd98a; font-size: .43rem; letter-spacing: -.02em; }
+.spell-slot-btn.ultimate-slot.cooling-down { animation: none; opacity: .6; filter: grayscale(.15); }
+.ultimate-loadout-slot { border-color: rgba(223,174,72,.48); background: linear-gradient(145deg, rgba(103,63,134,.16), rgba(255,188,67,.055)); }
+.ultimate-loadout-slot.selected { border-color: #e1b45f; box-shadow: 0 0 17px rgba(217,170,85,.2); }
+@keyframes ultimate-ready-pulse {
+  0%, 100% { box-shadow: 0 0 11px rgba(222,170,73,.18), 0 5px 16px rgba(0,0,0,.45), inset 0 0 14px rgba(255,224,142,.06); }
+  50% { box-shadow: 0 0 22px rgba(222,170,73,.4), 0 5px 16px rgba(0,0,0,.45), inset 0 0 18px rgba(255,224,142,.12); }
+}
+
+/* Patch 17: toggle-based repeating casts for normal spell slots */
+.spell-slot-btn.auto-casting {
+  opacity: 1;
+  border-color: rgba(255,241,181,.95) !important;
+  background: radial-gradient(circle at 50% 42%, rgba(223,177,78,.35), rgba(28,22,20,.96) 72%);
+  animation: spell-auto-cast-pulse 1.05s ease-in-out infinite;
+}
+.spell-slot-btn.auto-casting small {
+  color: #fff0a9;
+  font-size: .52rem;
+  letter-spacing: .04em;
+}
+@keyframes spell-auto-cast-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(233,190,87,.22), 0 5px 16px rgba(0,0,0,.42), inset 0 0 12px rgba(255,240,180,.05); transform: translateY(0); }
+  50% { box-shadow: 0 0 23px rgba(233,190,87,.58), 0 5px 16px rgba(0,0,0,.42), inset 0 0 18px rgba(255,240,180,.14); transform: translateY(-1px); }
+}

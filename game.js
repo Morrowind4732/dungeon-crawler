@@ -43,10 +43,10 @@
 
   const TAU = Math.PI * 2;
   const TICK = 1 / 60;
-  const SAVE_VERSION = 7;
+  const SAVE_VERSION = 8;
   const SAVE_PREFIX = 'dungeonCampPrototype_slot_';
   const SLOT_COUNT = 3;
-  const DODGE = { maxStamina: 100, combatCost: 25, duration: 0.23, speed: 1120, minSwipe: 42, maxGestureMs: 330, doubleFlickMs: 460, regenPerSecond: 24, regenDelay: 0.65, chargeBonusDamage: 0.85, chargeKnockbackMult: 1.6 };
+  const DODGE = { maxStamina: 100, combatCost: 25, duration: 0.23, speed: 1120, minSwipe: 42, outsideMargin: 7, maxGestureMs: 330, doubleFlickMs: 460, regenPerSecond: 24, regenDelay: 0.65, chargeBonusDamage: 0.85, chargeKnockbackMult: 1.6 };
   const PLAYER_SPEED_MULTIPLIER = 2;
   const ENEMY_SPEED_MULTIPLIER = 2;
 
@@ -123,6 +123,13 @@
   };
   const SPELL_ORDER = ['fireball','frostShards','stoneBurst','mendingWisps','flameWave','iceNova','tidalSurge','rejuvenation','arcaneBarrier','meteor','glacialPrison','earthquake','silenceField','greaterRestoration'];
   const SPELL_SWAP_COOLDOWN_MS = 15000;
+  const ULTIMATE_COOLDOWN_MS = 35000;
+  const TAP_CAST = { maxTapMs: 230, maxTravel: 18, sequenceGapMs: 320, doubleResolveMs: 335 };
+  const AUTO_CAST_REPEAT_SECONDS = {
+    fireball: .16, frostShards: .48, stoneBurst: .7, mendingWisps: 10, rejuvenation: 6,
+    flameWave: .82, iceNova: .9, tidalSurge: .62, arcaneBarrier: 5, meteor: 1.35,
+    glacialPrison: 7.5, earthquake: .2, silenceField: 6, greaterRestoration: 3,
+  };
 
   const MATERIALS = {
     zombie: { id: 'zombie_tooth', name: 'Zombie Tooth' },
@@ -154,9 +161,14 @@
     camera: { x: 0, y: 0 },
     input: { x: 0, y: 0, aimX: 0, aimY: -1, aimMode: false, keys: new Set(), manualHeld: false, interactQueued: false },
     joystick: {
-      first: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
-      second: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
+      first: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0, dodgeThreshold: 0 },
+      second: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0, dodgeThreshold: 0 },
     },
+    tapCasting: {
+      left: { count: 0, lastTime: 0, timer: null },
+      right: { count: 0, lastTime: 0, timer: null },
+    },
+    spellAutoCast: { activeSlots: [false, false, false, false], delays: [0, 0, 0, 0], channelCursor: 0 },
     autoAttack: true,
     lastTime: 0,
     accumulator: 0,
@@ -245,6 +257,7 @@
       knownSpells: ['fireball'],
       equippedSpells: ['fireball', null, null, null, null],
       spellSwapAvailableAt: 0,
+      ultimateReadyAt: 0,
       bagUpgrades: 0,
       skills: {
         mining: { level: 1, xp: 0 }, smithing: { level: 1, xp: 0 },
@@ -344,7 +357,9 @@
     while (character.equippedSpells.length < 5) character.equippedSpells.push(null);
     character.equippedSpells = character.equippedSpells.map(id => character.knownSpells.includes(id) ? id : null);
     if (!character.equippedSpells[0]) character.equippedSpells[0] = 'fireball';
+    if (character.equippedSpells[4] && SPELLS[character.equippedSpells[4]]?.tier !== 'High') character.equippedSpells[4] = null;
     character.spellSwapAvailableAt = Number(character.spellSwapAvailableAt) || 0;
+    character.ultimateReadyAt = Number(character.ultimateReadyAt) || 0;
     character.bagUpgrades = Number(character.bagUpgrades) || Math.max(0, Math.round(((character.inventoryCapacity || 30) - 30) / 5));
   }
 
@@ -645,6 +660,7 @@
   }
 
   function enterCamp() {
+    stopSpellAutoCast(null, '', { silent: true });
     game.scene = 'camp';
     game.enemies = [];
     game.projectiles = [];
@@ -3080,6 +3096,7 @@
     const dx = clientX - state.originX;
     const dy = clientY - state.originY;
     const max = Math.max(38, rect.width * 0.43);
+    if (isStart) state.dodgeThreshold = rect.width * 0.5 + DODGE.outsideMargin;
     const n = normalize(dx, dy);
     const distance = Math.hypot(dx, dy);
     const rawMagnitude = clamp(distance / max, 0, 1);
@@ -3108,6 +3125,7 @@
     state.lastY = 0;
     state.startTime = 0;
     state.maxDistance = 0;
+    state.dodgeThreshold = 0;
     resetStickVisual(base, knob);
   }
 
@@ -3122,6 +3140,58 @@
       return true;
     }
     game.aimFlick = { time: now, x: direction.x, y: direction.y };
+    return false;
+  }
+
+  function isOutsideCircleFlick(elapsedMs, travelDistance, dodgeThreshold) {
+    return elapsedMs <= DODGE.maxGestureMs
+      && travelDistance >= DODGE.minSwipe
+      && dodgeThreshold > 0
+      && travelDistance >= dodgeThreshold;
+  }
+
+  function isStationarySpellTap(elapsedMs, travelDistance) {
+    return elapsedMs <= TAP_CAST.maxTapMs && travelDistance <= TAP_CAST.maxTravel;
+  }
+
+  function resetTapSequence(side) {
+    const sequence = game.tapCasting?.[side];
+    if (!sequence) return;
+    if (sequence.timer) clearTimeout(sequence.timer);
+    sequence.count = 0;
+    sequence.lastTime = 0;
+    sequence.timer = null;
+  }
+
+  function registerSpellTap(side) {
+    if (game.scene !== 'dungeon' || game.paused || !game.character || !game.player) return false;
+    const sequence = game.tapCasting[side];
+    const now = performance.now();
+    if (now - sequence.lastTime > TAP_CAST.sequenceGapMs) {
+      if (sequence.timer) clearTimeout(sequence.timer);
+      sequence.count = 0;
+      sequence.timer = null;
+    }
+    sequence.count += 1;
+    sequence.lastTime = now;
+
+    if (sequence.count === 2) {
+      if (sequence.timer) clearTimeout(sequence.timer);
+      sequence.timer = setTimeout(() => {
+        const slotIndex = side === 'left' ? 0 : 1;
+        resetTapSequence(side);
+        if (game.scene === 'dungeon' && !game.paused) toggleSpellAutoCast(slotIndex, { source: 'gesture' });
+      }, TAP_CAST.doubleResolveMs);
+      return true;
+    }
+
+    if (sequence.count >= 3) {
+      if (sequence.timer) clearTimeout(sequence.timer);
+      const slotIndex = side === 'left' ? 2 : 3;
+      resetTapSequence(side);
+      toggleSpellAutoCast(slotIndex, { source: 'gesture' });
+      return true;
+    }
     return false;
   }
 
@@ -3140,7 +3210,7 @@
       if (key === 'q') toggleAutoAttack();
       if (key === 'i') showInventory();
       if (key === 'm') showMap();
-      if (/^[1-5]$/.test(key)) castEquippedSpell(Number(key) - 1);
+      if (/^[1-4]$/.test(key)) toggleSpellAutoCast(Number(key) - 1, { source: 'keyboard' });
       if (key === 'escape' && game.running) modalBackdrop.classList.contains('hidden') ? showMainMenu() : hideModal();
     });
     window.addEventListener('keyup', (e) => game.input.keys.delete(e.key.toLowerCase()));
@@ -3163,6 +3233,7 @@
       state.lastY = clientY;
       state.startTime = performance.now();
       state.maxDistance = 0;
+      state.dodgeThreshold = 0;
       setStickFromPointer(slot, clientX, clientY, true);
       return true;
     };
@@ -3197,18 +3268,26 @@
       const swipeX = state.lastX - state.startX;
       const swipeY = state.lastY - state.startY;
       const swipeDistance = Math.max(state.maxDistance, Math.hypot(swipeX, swipeY));
-      const qualifiesAsFlick = elapsed <= DODGE.maxGestureMs && swipeDistance >= DODGE.minSwipe;
+      const qualifiesAsFlick = isOutsideCircleFlick(elapsed, swipeDistance, state.dodgeThreshold);
+      const qualifiesAsTap = isStationarySpellTap(elapsed, swipeDistance);
       const releasedRole = state.role;
+      const releasedSide = slot === 'first' ? 'left' : 'right';
       const shouldDodge = releasedRole === 'move' && qualifiesAsFlick;
       const shouldRegisterAimFlick = releasedRole === 'aim' && qualifiesAsFlick;
       const dodgeDir = Math.hypot(state.vectorX, state.vectorY) > 0.25 ? { x: state.vectorX, y: state.vectorY } : normalize(swipeX, swipeY);
       clearStick(slot);
       syncTouchControlRoles();
       if (shouldDodge) {
+        resetTapSequence(releasedSide);
         const worldDodge = screenVectorToWorld(dodgeDir.x, dodgeDir.y);
         attemptDodge(worldDodge.x, worldDodge.y);
       } else if (shouldRegisterAimFlick) {
+        resetTapSequence(releasedSide);
         registerAimFlick(dodgeDir);
+      } else if (qualifiesAsTap) {
+        registerSpellTap(releasedSide);
+      } else {
+        resetTapSequence(releasedSide);
       }
       if (!game.joystick.first.active && !game.joystick.second.active) resetJoystickVisual();
     };
@@ -3354,29 +3433,31 @@
         }
       }
     }
-    if (!p.spellCast) return;
-    const cast = p.spellCast;
-    cast.time -= dt;
-    cast.tick -= dt;
-    if (cast.id === 'fireball' && cast.tick <= 0) {
-      cast.tick += .28;
-      const dir = normalize(p.facing.x, p.facing.y);
-      fireProjectile(p.x + dir.x * 34, p.y + dir.y * 34, dir.x * 520, dir.y * 520, spellDamage(.62), '#ff7a39', 10, 'player', { status: 'burn', statusDuration: 3.2, knockback: 135, sourceSpell: 'fireball' });
-      game.particles.push({ type: 'ring', x: p.x + dir.x * 28, y: p.y + dir.y * 28, r: 2, maxR: 18, t: 0, duration: .13, color: '#ffb45f' });
-    } else if (cast.id === 'earthquake' && cast.tick <= 0) {
-      cast.tick += .45;
-      cast.pulses -= 1;
-      const radius = 210 + (5 - cast.pulses) * 34;
-      for (const enemy of game.enemies) {
-        if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > radius + enemy.radius) continue;
-        hitEnemy(enemy, spellDamage(.48), 330, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#d7b06d' });
-        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 1.1);
+    if (p.spellCast) {
+      const cast = p.spellCast;
+      cast.time -= dt;
+      cast.tick -= dt;
+      if (cast.id === 'fireball' && cast.tick <= 0) {
+        cast.tick += .28;
+        const dir = normalize(p.facing.x, p.facing.y);
+        fireProjectile(p.x + dir.x * 34, p.y + dir.y * 34, dir.x * 520, dir.y * 520, spellDamage(.62), '#ff7a39', 10, 'player', { status: 'burn', statusDuration: 3.2, knockback: 135, sourceSpell: 'fireball' });
+        game.particles.push({ type: 'ring', x: p.x + dir.x * 28, y: p.y + dir.y * 28, r: 2, maxR: 18, t: 0, duration: .13, color: '#ffb45f' });
+      } else if (cast.id === 'earthquake' && cast.tick <= 0) {
+        cast.tick += .45;
+        cast.pulses -= 1;
+        const radius = 210 + (5 - cast.pulses) * 34;
+        for (const enemy of game.enemies) {
+          if (enemy.dead || dist(enemy.x, enemy.y, p.x, p.y) > radius + enemy.radius) continue;
+          hitEnemy(enemy, spellDamage(.48), 330, enemy.x - p.x, enemy.y - p.y, { canCrit: false, color: '#d7b06d' });
+          enemy.slowTimer = Math.max(enemy.slowTimer || 0, 1.1);
+        }
+        game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 20, maxR: radius, t: 0, duration: .32, color: '#d7b06d' });
+        addCameraShake(5, .16);
+        if (cast.pulses <= 0) cast.time = 0;
       }
-      game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 20, maxR: radius, t: 0, duration: .32, color: '#d7b06d' });
-      addCameraShake(5, .16);
-      if (cast.pulses <= 0) cast.time = 0;
+      if (cast.time <= 0) p.spellCast = null;
     }
-    if (cast.time <= 0) p.spellCast = null;
+    updateSpellAutoCast(dt);
   }
 
   function updateSpellEffects(dt) {
@@ -3394,15 +3475,119 @@
     game.spellEffects = game.spellEffects.filter(effect => effect.time > -0.25 && !effect.triggered);
   }
 
-  function castEquippedSpell(slotIndex) {
-    const unlocked = spellSlotsUnlocked();
-    if (slotIndex < 0 || slotIndex >= unlocked) { toast(`Spell slot ${slotIndex + 1} unlocks at level ${slotIndex * 10}.`); return false; }
-    const spellId = game.character.equippedSpells?.[slotIndex];
-    if (!spellId) { toast('That spell slot is empty.'); return false; }
-    return castSpell(spellId);
+  function ultimateCooldownRemainingMs() {
+    return Math.max(0, (game.character?.ultimateReadyAt || 0) - Date.now());
   }
 
-  function castSpell(spellId) {
+  function autoCastRepeatDelay(spellId) {
+    return AUTO_CAST_REPEAT_SECONDS[spellId] ?? .65;
+  }
+
+  function ensureSpellAutoCastState() {
+    game.spellAutoCast ||= {};
+    game.spellAutoCast.activeSlots = Array.from({ length: 4 }, (_, index) => !!game.spellAutoCast.activeSlots?.[index]);
+    game.spellAutoCast.delays = Array.from({ length: 4 }, (_, index) => Math.max(0, Number(game.spellAutoCast.delays?.[index]) || 0));
+    game.spellAutoCast.channelCursor = clamp(Math.floor(Number(game.spellAutoCast.channelCursor) || 0), 0, 3);
+    return game.spellAutoCast;
+  }
+
+  function isSpellAutoCastActive(slotIndex) {
+    return !!ensureSpellAutoCastState().activeSlots[slotIndex];
+  }
+
+  function stopSpellAutoCast(slotIndex = null, reason = '', options = {}) {
+    const state = ensureSpellAutoCastState();
+    const slots = slotIndex === null ? [0, 1, 2, 3] : [slotIndex];
+    let stopped = false;
+    for (const index of slots) {
+      if (!state.activeSlots[index]) continue;
+      const spellId = game.character?.equippedSpells?.[index];
+      const spellName = SPELLS[spellId]?.name || `Spell slot ${index + 1}`;
+      if (options.cancelChannel !== false && game.player?.spellCast?.autoSlot === index) game.player.spellCast = null;
+      state.activeSlots[index] = false;
+      state.delays[index] = 0;
+      stopped = true;
+      if (!options.silent && slotIndex !== null) {
+        if (reason === 'mana') toast(`${spellName} auto-cast stopped — not enough mana.`);
+        else if (reason === 'unavailable') toast(`${spellName} auto-cast stopped.`);
+        else toast(`${spellName} auto-cast off.`, 900);
+      }
+    }
+    if (stopped) game.spellTraySignature = '';
+    return stopped;
+  }
+
+  function toggleSpellAutoCast(slotIndex, options = {}) {
+    const unlocked = spellSlotsUnlocked();
+    if (slotIndex < 0 || slotIndex >= unlocked || slotIndex >= 4) {
+      if (slotIndex >= unlocked) toast(`Spell slot ${slotIndex + 1} unlocks at level ${slotIndex * 10}.`);
+      return false;
+    }
+    if (isSpellAutoCastActive(slotIndex)) return stopSpellAutoCast(slotIndex, 'manual');
+    const spellId = game.character?.equippedSpells?.[slotIndex];
+    if (!spellId) { toast('That spell slot is empty.'); return false; }
+    const spell = SPELLS[spellId];
+    if (game.scene !== 'dungeon' || !game.player) { toast('Spells are cast inside the dungeon.'); return false; }
+    if (game.player.mana < spell.mana) { toast(`Not enough mana for ${spell.name}.`); return false; }
+    const state = ensureSpellAutoCastState();
+    state.activeSlots[slotIndex] = true;
+    state.delays[slotIndex] = 0;
+    game.spellTraySignature = '';
+    toast(`${spell.name} auto-cast on. Repeat the same command to stop.`, 1200);
+    updateSpellAutoCast(0);
+    return true;
+  }
+
+  function updateSpellAutoCast(dt) {
+    const state = ensureSpellAutoCastState();
+    if (game.scene !== 'dungeon' || game.paused || !game.player || !game.character) return;
+    const unlocked = spellSlotsUnlocked();
+    for (let offset = 0; offset < 4; offset++) {
+      const slotIndex = (state.channelCursor + offset) % 4;
+      if (!state.activeSlots[slotIndex]) continue;
+      if (slotIndex >= unlocked) { stopSpellAutoCast(slotIndex, 'unavailable'); continue; }
+      const spellId = game.character.equippedSpells?.[slotIndex];
+      const spell = SPELLS[spellId];
+      if (!spell) { stopSpellAutoCast(slotIndex, 'unavailable'); continue; }
+      state.delays[slotIndex] = Math.max(0, state.delays[slotIndex] - dt);
+      if (state.delays[slotIndex] > 0) continue;
+      const isChannelSpell = spellId === 'fireball' || spellId === 'earthquake';
+      if (isChannelSpell && game.player.spellCast) continue;
+      if (game.player.mana < spell.mana) { stopSpellAutoCast(slotIndex, 'mana'); continue; }
+      const cast = castSpell(spellId, { silent: true, autoSlot: slotIndex });
+      if (cast) {
+        state.delays[slotIndex] = autoCastRepeatDelay(spellId);
+        if (isChannelSpell) state.channelCursor = (slotIndex + 1) % 4;
+        game.spellTraySignature = '';
+      } else {
+        state.delays[slotIndex] = .18;
+      }
+    }
+  }
+
+  function castEquippedSpell(slotIndex, options = {}) {
+    const unlocked = spellSlotsUnlocked();
+    if (slotIndex < 0 || slotIndex >= unlocked) { toast(`Spell slot ${slotIndex + 1} unlocks at level ${slotIndex * 10}.`); return false; }
+    if (slotIndex === 4 && options.source === 'gesture') return false;
+    const spellId = game.character.equippedSpells?.[slotIndex];
+    if (!spellId) { toast('That spell slot is empty.'); return false; }
+    const spell = SPELLS[spellId];
+    if (slotIndex === 4) {
+      if (spell?.tier !== 'High') { toast('The ultimate slot accepts high-tier magic only.'); return false; }
+      const remaining = ultimateCooldownRemainingMs();
+      if (remaining > 0) { toast(`Ultimate ready in ${Math.ceil(remaining / 1000)}s.`); return false; }
+      const cast = castSpell(spellId, options);
+      if (cast) {
+        game.character.ultimateReadyAt = Date.now() + ULTIMATE_COOLDOWN_MS;
+        game.spellTraySignature = '';
+        saveGame();
+      }
+      return cast;
+    }
+    return castSpell(spellId, options);
+  }
+
+  function castSpell(spellId, options = {}) {
     const spell = SPELLS[spellId];
     const p = game.player;
     if (!spell || !p) return false;
@@ -3413,7 +3598,7 @@
     const dir = normalize(p.facing.x, p.facing.y);
     const damage = spellDamage();
     if (spellId === 'fireball') {
-      p.spellCast = { id: spellId, time: 2.2, tick: 0 };
+      p.spellCast = { id: spellId, time: 2.2, tick: 0, autoSlot: Number.isInteger(options.autoSlot) ? options.autoSlot : null };
     } else if (spellId === 'frostShards') {
       const base = Math.atan2(dir.y, dir.x);
       for (const offset of [-.16, 0, .16]) {
@@ -3468,7 +3653,7 @@
       }
       game.particles.push({ type: 'ring', x: p.x, y: p.y, r: 40, maxR: 525, t: 0, duration: .65, color: '#d6f3ff' });
     } else if (spellId === 'earthquake') {
-      p.spellCast = { id: spellId, time: 2.25, tick: 0, pulses: 5 };
+      p.spellCast = { id: spellId, time: 2.25, tick: 0, pulses: 5, autoSlot: Number.isInteger(options.autoSlot) ? options.autoSlot : null };
     } else if (spellId === 'silenceField') {
       p.silenceTimer = 6;
       for (const projectile of game.projectiles) if (projectile.owner === 'enemy') destroyProjectile(projectile);
@@ -3476,7 +3661,7 @@
     } else if (spellId === 'greaterRestoration') {
       p.healOverTime = { time: 3, tick: .1, amountPerTick: Math.max(2, p.maxHealth * .04) };
     }
-    toast(`${spell.name} cast.`, 900);
+    if (!options.silent) toast(`${spell.name} cast.`, 900);
     return true;
   }
 
@@ -3487,13 +3672,16 @@
   function equipSpellToSlot(spellId, slotIndex) {
     if (!game.character.knownSpells.includes(spellId)) return;
     if (slotIndex >= spellSlotsUnlocked()) return;
+    if (slotIndex === 4 && SPELLS[spellId]?.tier !== 'High') { toast('The ultimate slot accepts high-tier magic only.'); return; }
     const remaining = spellSwapRemainingMs();
     if (remaining > 0) { toast(`Spell swapping ready in ${(remaining / 1000).toFixed(1)}s.`); return; }
+    stopSpellAutoCast(null, '', { silent: true });
     const equipped = game.character.equippedSpells;
     const existing = equipped.indexOf(spellId);
     if (existing === slotIndex) return;
     if (existing >= 0) equipped[existing] = equipped[slotIndex] || null;
     equipped[slotIndex] = spellId;
+    if (equipped[4] && SPELLS[equipped[4]]?.tier !== 'High') equipped[4] = null;
     game.character.spellSwapAvailableAt = Date.now() + SPELL_SWAP_COOLDOWN_MS;
     game.spellTraySignature = '';
     saveGame();
@@ -3509,9 +3697,11 @@
     const slots = Array.from({ length: unlocked }, (_, index) => {
       const id = game.character.equippedSpells[index];
       const spell = SPELLS[id];
-      return `<button class="loadout-slot ${index === selectedSlot ? 'selected' : ''}" data-slot="${index}"><span>${spell?.icon || '+'}</span><b>${spell?.name || `Empty Slot ${index + 1}`}</b><small>Slot ${index + 1}</small></button>`;
+      const slotLabel = index === 4 ? 'Ultimate' : `Slot ${index + 1}`;
+      return `<button class="loadout-slot ${index === selectedSlot ? 'selected' : ''} ${index === 4 ? 'ultimate-loadout-slot' : ''}" data-slot="${index}"><span>${spell?.icon || '+'}</span><b>${spell?.name || `Empty ${slotLabel}`}</b><small>${slotLabel}</small></button>`;
     }).join('');
-    const cards = game.character.knownSpells.map(id => {
+    const availableSpells = selectedSlot === 4 ? game.character.knownSpells.filter(id => SPELLS[id]?.tier === 'High') : game.character.knownSpells;
+    const cards = availableSpells.map(id => {
       const spell = SPELLS[id];
       const active = game.character.equippedSpells[selectedSlot] === id;
       return `<button class="spellbook-card element-${spell.element} ${active ? 'equipped' : ''}" data-spell="${id}" ${remaining > 0 ? 'disabled' : ''}><span class="spell-rune">${spell.icon}</span><strong>${spell.name}</strong><small>${spell.tier} · ${spell.mana} MP</small><p>${spell.description}</p></button>`;
@@ -3519,9 +3709,9 @@
     showModal('Spellbook & Loadout', `
       <div class="spell-loadout-summary"><span><b>${unlocked}</b> spell slot${unlocked === 1 ? '' : 's'}</span><span><b>${game.character.knownSpells.length}</b> learned</span><span>${remaining > 0 ? `<b>${(remaining / 1000).toFixed(1)}s</b> swap lock` : '<b>Ready</b> to swap'}</span></div>
       <div class="spell-loadout-slots">${slots}</div>
-      <div class="section-title">Choose a spell for slot ${selectedSlot + 1}</div>
+      <div class="section-title">Choose a spell for ${selectedSlot === 4 ? 'the Ultimate slot' : `slot ${selectedSlot + 1}`}</div>
       <div class="spellbook-grid">${cards}</div>
-      <p class="muted">New slots unlock at levels 10, 20, 30, and 40. Every loadout change starts a 15-second swap lock.</p>
+      <p class="muted">Slots 1–4 use toggle casting: perform their gesture or tap their button once to keep casting, then repeat it to stop. Auto-casting ends when mana is too low. Slot 5 remains a tap-only ultimate with a 35-second cooldown. Every loadout change starts a 15-second swap lock.</p>
     `);
     modalBody.querySelectorAll('.loadout-slot').forEach(btn => btn.addEventListener('click', () => showSpellLoadout(Number(btn.dataset.slot))));
     modalBody.querySelectorAll('.spellbook-card').forEach(btn => btn.addEventListener('click', () => equipSpellToSlot(btn.dataset.spell, selectedSlot)));
@@ -3576,16 +3766,31 @@
   function renderSpellTray() {
     if (!spellTray || !game.character) return;
     const unlocked = spellSlotsUnlocked();
-    const signature = `${game.scene}|${unlocked}|${game.character.equippedSpells?.slice(0, unlocked).join(',')}|${Math.floor(game.player?.mana || 0)}`;
+    const ultimateSeconds = Math.ceil(ultimateCooldownRemainingMs() / 1000);
+    const activeSlots = ensureSpellAutoCastState().activeSlots;
+    const signature = `${game.scene}|${unlocked}|${game.character.equippedSpells?.slice(0, unlocked).join(',')}|${Math.floor(game.player?.mana || 0)}|${ultimateSeconds}|${activeSlots.join(',')}`;
     if (signature === game.spellTraySignature) return;
     game.spellTraySignature = signature;
     spellTray.innerHTML = Array.from({ length: unlocked }, (_, index) => {
       const id = game.character.equippedSpells[index];
       const spell = SPELLS[id];
-      const disabled = !spell || game.scene !== 'dungeon' || game.player.mana < spell.mana;
-      return `<button class="spell-slot-btn element-${spell?.element || 'empty'}" data-slot="${index}" ${disabled ? 'disabled' : ''} title="${spell ? `${spell.name} · ${spell.mana} MP` : 'Empty spell slot'}"><span>${spell?.icon || '+'}</span><small>${index + 1}</small></button>`;
+      const isUltimate = index === 4;
+      const autoActive = !isUltimate && activeSlots[index];
+      const cooldownBlocked = isUltimate && ultimateSeconds > 0;
+      const invalidUltimate = isUltimate && spell && spell.tier !== 'High';
+      const manaBlocked = !autoActive && game.player.mana < (spell?.mana || Infinity);
+      const disabled = !spell || game.scene !== 'dungeon' || manaBlocked || cooldownBlocked || invalidUltimate;
+      const gesture = index === 0 ? 'L×2' : index === 1 ? 'R×2' : index === 2 ? 'L×3' : index === 3 ? 'R×3' : (ultimateSeconds > 0 ? `${ultimateSeconds}s` : 'ULT');
+      const shortcut = autoActive ? 'ON' : gesture;
+      const title = spell ? `${spell.name} · ${spell.mana} MP${autoActive ? ' · Auto-casting; repeat command to stop' : isUltimate ? ` · ${ultimateSeconds > 0 ? `${ultimateSeconds}s cooldown` : 'Ultimate ready'}` : ' · Toggle auto-cast'}` : 'Empty spell slot';
+      return `<button class="spell-slot-btn element-${spell?.element || 'empty'} ${isUltimate ? 'ultimate-slot' : ''} ${autoActive ? 'auto-casting' : ''} ${cooldownBlocked ? 'cooling-down' : ''}" data-slot="${index}" ${disabled ? 'disabled' : ''} title="${title}"><span>${spell?.icon || '+'}</span><small>${shortcut}</small></button>`;
     }).join('');
-    spellTray.querySelectorAll('.spell-slot-btn').forEach(btn => btn.addEventListener('click', event => { event.preventDefault(); castEquippedSpell(Number(btn.dataset.slot)); }));
+    spellTray.querySelectorAll('.spell-slot-btn').forEach(btn => btn.addEventListener('click', event => {
+      event.preventDefault();
+      const slotIndex = Number(btn.dataset.slot);
+      if (slotIndex === 4) castEquippedSpell(slotIndex, { source: 'button' });
+      else toggleSpellAutoCast(slotIndex, { source: 'button' });
+    }));
   }
 
   function updateHud() {
@@ -4878,7 +5083,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, showMageShop, showBagSmith, showSpellLoadout, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, isOutsideCircleFlick, isStationarySpellTap, registerSpellTap, resetTapSequence, ultimateCooldownRemainingMs, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, toggleSpellAutoCast, stopSpellAutoCast, updateSpellAutoCast, isSpellAutoCastActive, showMageShop, showBagSmith, showSpellLoadout, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();
