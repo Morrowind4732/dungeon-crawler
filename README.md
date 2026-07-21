@@ -1,42 +1,35 @@
-# Dungeon Crawler — Isometric Patch 18
+# Dungeon Crawler — Isometric Patch 19
 
 Open `index.html` in a modern desktop or mobile browser. No server, package installation, or external assets are required.
 
-## Patch 18 highlights
+## Patch 19 highlights
 
-### Combat impact and spell balance
+### HUD layout
 
-- All player-caused knockback has been doubled
-- Arcane Barrier now compares the player's level with each creature's level
-- Lower-level enemies are expelled completely beyond the barrier ring
-- Equal-level enemies receive a strong push
-- Higher-level enemies increasingly resist the barrier, and enemies five or more levels above the player cannot be displaced by it
-- Frost Shards projectile damage has been increased by about 74% so its rapid mana consumption delivers meaningful burst damage
+- The zone and room information now occupies the open upper-right corner.
+- The Menu button now sits inside the lower action cluster between Use and Attack.
+- The health, XP, stamina, and mana bars retain the upper-left corner without competing with the area title.
 
-### Interaction selection
+### Enemy special attacks
 
-- Interact now scans every valid nearby NPC, camp service, object, or dungeon feature
-- One available target still opens immediately
-- Multiple nearby targets open a compact selection menu ordered by distance
-- The game pauses while the target selector is open, preventing accidental movement or attacks
+- Hostile special-attack warnings have 0.25 seconds of additional reaction time.
+- The longer warnings cover explosions, poison slams, sonar cones, vortexes, boss charges, spider leaps, shadow teleports, and web placement.
+- The black-hole pull remains dangerous to an idle character, but deliberate outward movement can now fight it and a dodge escapes it decisively.
 
-### Potion economy
+### Smart Auto Equip
 
-- A healing potion costs 100 gold while the player carries none
-- Each potion currently carried increases the next potion's price by 10%, compounded and rounded to whole gold
-- Example prices: 100, 110, 121, 133, 146, 161...
-- Drinking or otherwise removing potions lowers the next purchase price again
+- Inventory & Equipment now includes an Auto Equip menu.
+- Primary and Secondary selectors contain the same priorities: Damage, Strength, Agility, Reach, Critical Chance, Critical Damage, Defense, Armor, Vitality, and Maximum Health.
+- Each equipment slot chooses the highest Primary value, then uses Secondary as the tie-breaker.
+- Remaining ties use overall item power, rarity, and item level.
+- A preview lists every proposed equipment change before the loadout is applied.
 
 ## Features carried forward
 
-- Toggle casting for normal spell slots and a deliberate mana-plus-cooldown Ultimate slot
-- Strict outside-the-stick-circle dodge flicks for precise positioning
-- Camp mage, elemental/support magic, mana, and spell loadout progression
-- Walking pack blacksmith with increasingly expensive inventory upgrades
-- Clean save screen, expedition selector, and isometric dungeon map
-- Context-sensitive right-side movement/aim controls
-- Full-bodied camp inhabitants with persistent individualized gear
-- Special monster variants, environmental hazards, and the reworked Horned Warden boss
-- Guaranteed retreat through each floor entrance
+- Doubled player knockback, level-scaled Arcane Barrier pushback, and stronger Frost Shards.
+- Multi-target interaction selection and inventory-based potion pricing.
+- Toggle casting for normal spell slots and a deliberate mana-plus-cooldown Ultimate slot.
+- Camp mage, roaming pack blacksmith, persistent camp inhabitants, and dungeon-size progression.
+- Isometric dungeon map, special monster variants, environmental hazards, and the reworked Horned Warden boss.
 
 Keyed doors and key/puzzle-gated backtracking remain reserved for a future patch.

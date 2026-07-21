@@ -479,3 +479,55 @@ input[type="text"] { width: 100%; min-height: 48px; font-size: 16px; border: 1px
 .interaction-choice span:last-child { display: grid; gap: 3px; }
 .interaction-choice small { color: var(--muted); font-size: .72rem; }
 @media (max-width: 560px) { .interaction-choice-grid { grid-template-columns: 1fr; } }
+
+
+/* Patch 19: clearer mobile HUD, bottom action menu, and smart auto-equip. */
+#hud {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 10px;
+}
+.hud-center {
+  justify-self: end;
+  max-width: min(48vw, 520px);
+  padding-right: 3px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.hud-center strong { font-size: 1rem; line-height: 1.15; }
+.hud-center small { display: block; margin-top: 3px; line-height: 1.15; }
+#menuBtn.menu-action {
+  left: 90px;
+  bottom: 5px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .02em;
+  background: rgba(43,38,30,.9);
+  border-color: rgba(226,178,88,.42);
+}
+.inventory-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; margin: 8px 0 4px; }
+.inventory-toolbar .panel-btn { text-align: center; font-weight: 800; }
+.auto-equip-priority-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin: 14px 0; }
+.auto-equip-field { display: grid; gap: 6px; }
+.auto-equip-field span { color: var(--gold); font-size: .72rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.auto-equip-field select {
+  width: 100%; min-height: 48px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 11px;
+  background: #2a251e; color: var(--ink); font: inherit;
+  touch-action: manipulation;
+}
+.auto-equip-preview { display: grid; gap: 7px; margin: 14px 0; }
+.auto-equip-change { display: grid; grid-template-columns: minmax(78px,.55fr) minmax(0,1fr); gap: 10px; align-items: center; padding: 9px 11px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.035); }
+.auto-equip-change b { color: var(--gold); font-size: .72rem; }
+.auto-equip-change span { min-width: 0; font-size: .78rem; overflow-wrap: anywhere; }
+.auto-equip-empty { padding: 14px; border: 1px solid rgba(114,184,112,.3); border-radius: 11px; color: #bfe0bd; background: rgba(114,184,112,.07); text-align: center; }
+@media (max-width: 650px) {
+  #hud { grid-template-columns: minmax(0, 57vw) minmax(0, 1fr); padding-left: 8px; padding-right: 9px; }
+  .hud-center { max-width: 39vw; }
+  .hud-center strong { font-size: .88rem; }
+  .hud-center small { font-size: .66rem; }
+  .auto-equip-priority-grid { grid-template-columns: 1fr; gap: 9px; }
+}

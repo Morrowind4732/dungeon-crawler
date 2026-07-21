@@ -43,7 +43,7 @@
 
   const TAU = Math.PI * 2;
   const TICK = 1 / 60;
-  const SAVE_VERSION = 8;
+  const SAVE_VERSION = 9;
   const SAVE_PREFIX = 'dungeonCampPrototype_slot_';
   const SLOT_COUNT = 3;
   const DODGE = { maxStamina: 100, combatCost: 25, duration: 0.23, speed: 1120, minSwipe: 42, outsideMargin: 7, maxGestureMs: 330, doubleFlickMs: 460, regenPerSecond: 24, regenDelay: 0.65, chargeBonusDamage: 0.85, chargeKnockbackMult: 1.6 };
@@ -51,6 +51,7 @@
   const ENEMY_SPEED_MULTIPLIER = 2;
   const PLAYER_KNOCKBACK_MULTIPLIER = 2;
   const ARCANE_BARRIER_RADIUS = 175;
+  const ENEMY_TELEGRAPH_BONUS = 0.25;
 
   const DUNGEON_SIZES = {
     Small: { name: 'Small', count: 20, xpMultiplier: 1, itemId: null, label: 'Small · 20 rooms · normal XP' },
@@ -132,6 +133,19 @@
     flameWave: .82, iceNova: .9, tidalSurge: .62, arcaneBarrier: 5, meteor: 1.35,
     glacialPrison: 7.5, earthquake: .2, silenceField: 6, greaterRestoration: 3,
   };
+
+  const AUTO_EQUIP_STATS = [
+    { key: 'damage', label: 'Damage' },
+    { key: 'strength', label: 'Strength' },
+    { key: 'agility', label: 'Agility' },
+    { key: 'reach', label: 'Reach' },
+    { key: 'critChance', label: 'Critical Chance' },
+    { key: 'critDamage', label: 'Critical Damage' },
+    { key: 'defense', label: 'Defense' },
+    { key: 'armor', label: 'Armor' },
+    { key: 'vitality', label: 'Vitality' },
+    { key: 'health', label: 'Maximum Health' },
+  ];
 
   const MATERIALS = {
     zombie: { id: 'zombie_tooth', name: 'Zombie Tooth' },
@@ -557,6 +571,8 @@
     game.character.version = SAVE_VERSION;
     game.character.settings ||= { handedness: 'standard', joystick: 'fixed', controlScale: 1, viewMode: 'isometric' };
     game.character.settings.viewMode ||= 'isometric';
+    game.character.settings.autoEquipPrimary ||= 'damage';
+    game.character.settings.autoEquipSecondary ||= 'strength';
     normalizeEquipment(game.character);
     normalizeFloorPersistence(game.character);
     normalizeMagic(game.character);
@@ -1037,6 +1053,7 @@
     p.health = Math.min(p.health, p.maxHealth);
     const input = updateInputVector();
     const inputMagnitude = Math.hypot(input.x, input.y);
+    p.moveIntent = { x: input.x, y: input.y, magnitude: inputMagnitude };
     const aimSign = p.confusionTimer > 0 ? -1 : 1;
     const aimMagnitude = Math.hypot(game.input.aimX, game.input.aimY);
     if (game.input.aimMode) {
@@ -1441,15 +1458,20 @@
   }
 
   function createBlastTelegraph(element, x, y, radius, delay, damage, sourceId = null, options = {}) {
-    game.areaEffects.push({ id: uid('effect'), type: 'blast', element, x, y, radius, duration: delay, time: delay, damage, sourceId, hazardDuration: options.hazardDuration || 5.5, statusDuration: options.statusDuration || 3.2 });
+    const telegraphDelay = Math.max(0.05, delay + (sourceId === 'player' ? 0 : ENEMY_TELEGRAPH_BONUS));
+    game.areaEffects.push({ id: uid('effect'), type: 'blast', element, x, y, radius, duration: telegraphDelay, time: telegraphDelay, damage, sourceId, hazardDuration: options.hazardDuration || 5.5, statusDuration: options.statusDuration || 3.2 });
   }
 
   function createVortex(x, y, radius, damage, sourceId = null) {
-    game.areaEffects.push({ id: uid('effect'), type: 'vortex', x, y, radius, duration: 2.05, time: 2.05, warmup: 0.55, damage, sourceId, pull: 720 });
+    const warningBonus = sourceId === 'player' ? 0 : ENEMY_TELEGRAPH_BONUS;
+    const warmup = 0.55 + warningBonus;
+    const duration = 2.05 + warningBonus;
+    game.areaEffects.push({ id: uid('effect'), type: 'vortex', x, y, radius, duration, time: duration, warmup, damage, sourceId, pull: 720 });
   }
 
   function createConeTelegraph(x, y, angle, range, arc, delay, damage, sourceId = null, confuseDuration = 2.6) {
-    game.areaEffects.push({ id: uid('effect'), type: 'cone', x, y, angle, range, arc, duration: delay, time: delay, damage, sourceId, confuseDuration });
+    const telegraphDelay = Math.max(0.05, delay + (sourceId === 'player' ? 0 : ENEMY_TELEGRAPH_BONUS));
+    game.areaEffects.push({ id: uid('effect'), type: 'cone', x, y, angle, range, arc, duration: telegraphDelay, time: telegraphDelay, damage, sourceId, confuseDuration });
   }
 
   function pointInCone(px, py, effect, extraRadius = 0) {
@@ -1503,7 +1525,20 @@
             const pd = dist(p.x, p.y, effect.x, effect.y);
             if (pd < effect.radius * 1.75 && pd > 5) {
               const pull = normalize(effect.x - p.x, effect.y - p.y);
-              const strength = (1 - clamp(pd / (effect.radius * 1.75), 0, 1)) * effect.pull;
+              const radialStrength = 1 - clamp(pd / (effect.radius * 1.75), 0, 1);
+              const intent = p.moveIntent || { x: 0, y: 0, magnitude: 0 };
+              let movementResistance = 1;
+              if (p.dodge) {
+                movementResistance = 0.06;
+              } else if (intent.magnitude > 0.12) {
+                const away = normalize(p.x - effect.x, p.y - effect.y);
+                const escapeAlignment = intent.x * away.x + intent.y * away.y;
+                const corePressure = clamp(1 - pd / Math.max(1, effect.radius), 0, 1);
+                if (escapeAlignment > 0.28) movementResistance = 0.18 + corePressure * 0.08;
+                else if (escapeAlignment > -0.25) movementResistance = 0.42;
+                else movementResistance = 0.86;
+              }
+              const strength = radialStrength * effect.pull * movementResistance;
               p.x += pull.x * strength * dt; p.y += pull.y * strength * dt;
             }
           }
@@ -1520,10 +1555,14 @@
       }
       if (effect.time <= 0) {
         if (effect.type === 'blast') {
-          const status = effect.element === 'fire' ? 'burn' : effect.element === 'poison' ? 'poison' : null;
-          damageCircle(effect.x, effect.y, effect.radius, effect.damage, effect.sourceId, status, effect.statusDuration);
-          if (effect.element === 'fire' || effect.element === 'poison') createGroundHazard(effect.element, effect.x, effect.y, effect.radius * 0.9, effect.hazardDuration, Math.max(2, effect.damage * 0.18), effect.sourceId);
-          addCameraShake(effect.element === 'fire' ? 9 : 7, 0.25);
+          if (effect.element === 'web') {
+            createGroundHazard('web', effect.x, effect.y, effect.radius, effect.hazardDuration, 0, effect.sourceId);
+          } else {
+            const status = effect.element === 'fire' ? 'burn' : effect.element === 'poison' ? 'poison' : null;
+            damageCircle(effect.x, effect.y, effect.radius, effect.damage, effect.sourceId, status, effect.statusDuration);
+            if (effect.element === 'fire' || effect.element === 'poison') createGroundHazard(effect.element, effect.x, effect.y, effect.radius * 0.9, effect.hazardDuration, Math.max(2, effect.damage * 0.18), effect.sourceId);
+            addCameraShake(effect.element === 'fire' ? 9 : 7, 0.25);
+          }
         } else if (effect.type === 'vortex') {
           damageCircle(effect.x, effect.y, effect.radius, effect.damage, effect.sourceId, null, 0);
           addCameraShake(10, 0.3);
@@ -1566,7 +1605,7 @@
       createVortex(targetX, targetY, 160, e.damage * 1.45, e.id);
       e.abilityCooldown = rand(5.4, 7.1);
     } else if (e.type === 'slime' && d < 880) {
-      e.specialState = 'slimeWindup'; e.specialTimer = 0.48; e.specialDuration = 0.48; e.specialTarget = { x: targetX, y: targetY };
+      e.specialState = 'slimeWindup'; e.specialTimer = 0.48 + ENEMY_TELEGRAPH_BONUS; e.specialDuration = 0.48 + ENEMY_TELEGRAPH_BONUS; e.specialTarget = { x: targetX, y: targetY };
       createBlastTelegraph('poison', targetX, targetY, 126, 0.92, e.damage * 1.15, e.id, { hazardDuration: 6.8, statusDuration: 4.0 });
       e.abilityCooldown = rand(4.7, 6.4);
       return true;
@@ -1580,7 +1619,7 @@
       createBlastTelegraph('stomp', e.x, e.y, 132, 0.58, e.damage * 1.45, e.id);
       e.abilityCooldown = rand(4.0, 5.8);
     } else if (e.type === 'spider' && d < 820) {
-      createGroundHazard('web', targetX, targetY, 118, 5.4, 0, e.id);
+      createBlastTelegraph('web', targetX, targetY, 118, 0.55, 0, e.id, { hazardDuration: 5.4, statusDuration: 0.55 });
       e.abilityCooldown = rand(4.4, 6.0);
     }
     return false;
@@ -1621,7 +1660,7 @@
     e.vy += target.y * e.speed * dt * 3.2 * moveFactor;
 
     if (e.bossMode === 'sprint' && e.chargeCooldown <= 0 && d < 1250) {
-      e.specialState = 'chargeWindup'; e.specialTimer = 0.48;
+      e.specialState = 'chargeWindup'; e.specialTimer = 0.48 + ENEMY_TELEGRAPH_BONUS;
       e.specialTarget = { x: p.x + p.vx * 0.2, y: p.y + p.vy * 0.2 };
       e.chargeCooldown = rand(2.0, 2.8);
       return;
@@ -1735,7 +1774,7 @@
           } else {
             e.vx += tacticalN.x * e.speed * dt * 4.8 * farPressure;
             e.vy += tacticalN.y * e.speed * dt * 4.8 * farPressure;
-            if (e.cooldown <= 0 && d < 760) { e.state = 'telegraph'; e.stateTimer = 0.46; }
+            if (e.cooldown <= 0 && d < 760) { e.state = 'telegraph'; e.stateTimer = 0.46 + ENEMY_TELEGRAPH_BONUS; }
           }
         } else if (!specialBusy && e.type === 'bat') {
           e.orbitAngle += dt * (2.0 + flankSign * 0.2);
@@ -1770,7 +1809,7 @@
             e.vx += tacticalN.x * e.speed * dt * 5.2 * farPressure;
             e.vy += tacticalN.y * e.speed * dt * 5.2 * farPressure;
             if (e.cooldown <= 0 && e.teleportCooldown <= 0 && d > 150) {
-              e.state = 'vanish'; e.stateTimer = 0.34; e.teleportCooldown = rand(3.2, 5.1);
+              e.state = 'vanish'; e.stateTimer = 0.34 + ENEMY_TELEGRAPH_BONUS; e.teleportCooldown = rand(3.2, 5.1);
             }
           }
         } else if (!specialBusy && e.type === 'imp') {
@@ -2755,12 +2794,115 @@
     </div>`;
   }
 
+  function autoEquipStatValue(item, key) {
+    if (!item || item.type !== 'gear') return 0;
+    const stats = item.stats || {};
+    if (key === 'damage') return (stats.damage || 0) + (item.weaponType ? (WEAPONS[item.weaponType]?.damage || 0) : 0);
+    if (key === 'reach') return (stats.reach || 0) + (item.weaponType ? (WEAPONS[item.weaponType]?.reach || 0) : 0);
+    return Number(stats[key]) || 0;
+  }
+
+  function autoEquipItemFitsSlot(item, slot) {
+    if (!item || item.type !== 'gear') return false;
+    if (slot === 'ringLeft' || slot === 'ringRight') return ['ring', 'ringLeft', 'ringRight'].includes(item.slot);
+    return item.slot === slot;
+  }
+
+  function compareAutoEquipEntries(a, b, primary, secondary) {
+    const primaryDiff = autoEquipStatValue(b.item, primary) - autoEquipStatValue(a.item, primary);
+    if (Math.abs(primaryDiff) > 0.000001) return primaryDiff;
+    const secondaryDiff = autoEquipStatValue(b.item, secondary) - autoEquipStatValue(a.item, secondary);
+    if (Math.abs(secondaryDiff) > 0.000001) return secondaryDiff;
+    const powerDiff = gearStrength(b.item) - gearStrength(a.item);
+    if (Math.abs(powerDiff) > 0.000001) return powerDiff;
+    const rarityDiff = rarityRank(b.item.rarity) - rarityRank(a.item.rarity);
+    if (rarityDiff) return rarityDiff;
+    return (b.item.level || 0) - (a.item.level || 0);
+  }
+
+  function buildAutoEquipPlan(primary, secondary) {
+    const c = game.character;
+    const entries = [];
+    for (const slot of EQUIPMENT_SLOTS) {
+      const item = c.equipment[slot];
+      if (item?.type === 'gear') entries.push({ item, token: `equipped:${slot}` });
+    }
+    c.inventory.forEach((item, index) => {
+      if (item?.type === 'gear') entries.push({ item, token: `inventory:${index}` });
+    });
+    const used = new Set();
+    const equipment = {};
+    for (const slot of EQUIPMENT_SLOTS) {
+      const candidates = entries.filter(entry => !used.has(entry.token) && autoEquipItemFitsSlot(entry.item, slot));
+      candidates.sort((a, b) => compareAutoEquipEntries(a, b, primary, secondary));
+      const best = candidates[0] || null;
+      equipment[slot] = best?.item || null;
+      if (best) used.add(best.token);
+    }
+    const nonGear = c.inventory.filter(item => item?.type !== 'gear');
+    const remainingGear = entries.filter(entry => !used.has(entry.token)).map(entry => entry.item);
+    const changes = EQUIPMENT_SLOTS.flatMap(slot => {
+      const before = c.equipment[slot] || null;
+      const after = equipment[slot] || null;
+      const same = before === after || (before?.id && after?.id && before.id === after.id);
+      return same ? [] : [{ slot, before, after }];
+    });
+    return { equipment, inventory: [...nonGear, ...remainingGear], changes };
+  }
+
+  function autoEquipPreviewHtml(plan) {
+    if (!plan.changes.length) return '<div class="auto-equip-empty">Your current equipment already matches these priorities.</div>';
+    return plan.changes.map(change => `<div class="auto-equip-change"><b>${SLOT_LABELS[change.slot]}</b><span>${change.before ? escapeHtml(change.before.name) : 'Empty'} → <strong>${change.after ? escapeHtml(change.after.name) : 'Empty'}</strong></span></div>`).join('');
+  }
+
+  function showAutoEquipMenu() {
+    const settings = game.character.settings;
+    const optionHtml = selected => AUTO_EQUIP_STATS.map(option => `<option value="${option.key}" ${option.key === selected ? 'selected' : ''}>${option.label}</option>`).join('');
+    showModal('Auto Equip', `
+      <p class="muted">Choose the most important stat, then the tie-breaker used when two items provide the same primary value.</p>
+      <div class="auto-equip-priority-grid">
+        <label class="auto-equip-field"><span>Primary</span><select id="autoEquipPrimary">${optionHtml(settings.autoEquipPrimary || 'damage')}</select></label>
+        <label class="auto-equip-field"><span>Secondary</span><select id="autoEquipSecondary">${optionHtml(settings.autoEquipSecondary || 'strength')}</select></label>
+      </div>
+      <div class="section-title">Loadout Preview</div>
+      <div id="autoEquipPreview" class="auto-equip-preview"></div>
+      <button id="applyAutoEquip" class="panel-btn wide-action">Equip Best Loadout</button>
+    `);
+    const primaryEl = $('autoEquipPrimary');
+    const secondaryEl = $('autoEquipSecondary');
+    const previewEl = $('autoEquipPreview');
+    const applyBtn = $('applyAutoEquip');
+    let plan = null;
+    const refresh = () => {
+      plan = buildAutoEquipPlan(primaryEl.value, secondaryEl.value);
+      previewEl.innerHTML = autoEquipPreviewHtml(plan);
+      applyBtn.disabled = plan.changes.length === 0;
+    };
+    primaryEl.addEventListener('change', refresh);
+    secondaryEl.addEventListener('change', refresh);
+    applyBtn.addEventListener('click', () => {
+      if (!plan?.changes.length) return;
+      settings.autoEquipPrimary = primaryEl.value;
+      settings.autoEquipSecondary = secondaryEl.value;
+      game.character.equipment = plan.equipment;
+      game.character.inventory = plan.inventory;
+      refreshDerivedHealth();
+      saveGame();
+      toast(`Auto-equipped ${plan.changes.length} slot${plan.changes.length === 1 ? '' : 's'}.`);
+      showInventory();
+    });
+    refresh();
+  }
+
   function showInventory() {
     const c = game.character;
     const paperSlots = EQUIPMENT_SLOTS.map(equipmentSlotHtml).join('');
     showModal('Inventory & Equipment', `
       <p>${c.inventory.length}/${c.inventoryCapacity} slots · ${c.coins} coins</p>
-      <button id="inventorySpellsBtn" class="panel-btn wide-action">Spellbook & Loadout</button>
+      <div class="inventory-toolbar">
+        <button id="autoEquipBtn" class="panel-btn">Auto Equip</button>
+        <button id="inventorySpellsBtn" class="panel-btn">Spellbook & Loadout</button>
+      </div>
       <div class="section-title">Equipped</div>
       <div class="paper-doll-shell">
         <div class="paper-doll-silhouette" aria-hidden="true"><span class="sil-head"></span><span class="sil-body"></span><span class="sil-arm left"></span><span class="sil-arm right"></span><span class="sil-leg left"></span><span class="sil-leg right"></span></div>
@@ -2771,6 +2913,7 @@
       <p class="muted">Equipment is grouped by slot and ordered strongest to weakest. Materials, quest items, and consumables stay in their own sections.</p>
       ${renderCollectionGroups(c.inventory, 'equip')}
     `);
+    $('autoEquipBtn')?.addEventListener('click', showAutoEquipMenu);
     $('inventorySpellsBtn')?.addEventListener('click', () => showSpellLoadout(0));
     modalBody.querySelectorAll('.equip-item').forEach(btn => btn.addEventListener('click', () => equipInventoryIndex(Number(btn.dataset.i))));
     modalBody.querySelectorAll('.unequip').forEach(btn => btn.addEventListener('click', () => unequipSlot(btn.dataset.slot)));
@@ -4291,7 +4434,7 @@
     for (const effect of game.areaEffects) {
       const progress = clamp(1 - effect.time / Math.max(0.001, effect.duration), 0, 1);
       if (effect.type === 'blast') {
-        const color = effect.element === 'fire' ? '#ff7047' : effect.element === 'poison' ? '#73d65f' : '#e3c36f';
+        const color = effect.element === 'fire' ? '#ff7047' : effect.element === 'poison' ? '#73d65f' : effect.element === 'web' ? '#c7d8df' : '#e3c36f';
         const pulse = 0.88 + Math.sin(now / 85) * 0.07;
         drawIsoGroundEllipse(effect.x, effect.y, effect.radius * pulse, effect.radius * pulse, `${color}22`, color, 5);
         drawIsoGroundEllipse(effect.x, effect.y, effect.radius * progress, effect.radius * progress, `${color}16`, color, 2);
@@ -5153,7 +5296,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, PLAYER_KNOCKBACK_MULTIPLIER, ARCANE_BARRIER_RADIUS, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, isOutsideCircleFlick, isStationarySpellTap, registerSpellTap, resetTapSequence, ultimateCooldownRemainingMs, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, toggleSpellAutoCast, stopSpellAutoCast, updateSpellAutoCast, isSpellAutoCastActive, showMageShop, showBagSmith, showSpellLoadout, healingPotionPrice, nearbyInteractables, performInteraction, interactWithTarget, updatePlayerMagic, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, PLAYER_KNOCKBACK_MULTIPLIER, ARCANE_BARRIER_RADIUS, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, isOutsideCircleFlick, isStationarySpellTap, registerSpellTap, resetTapSequence, ultimateCooldownRemainingMs, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, toggleSpellAutoCast, stopSpellAutoCast, updateSpellAutoCast, isSpellAutoCastActive, showMageShop, showBagSmith, showSpellLoadout, healingPotionPrice, nearbyInteractables, performInteraction, interactWithTarget, updatePlayerMagic, buildAutoEquipPlan, autoEquipStatValue, createBlastTelegraph, createConeTelegraph, createVortex, updateAreaEffects, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();
@@ -5191,6 +5334,12 @@
       spawnEnemy,
       enemySpawnPosition,
       updateEnemies,
+      buildAutoEquipPlan,
+      autoEquipStatValue,
+      createBlastTelegraph,
+      createConeTelegraph,
+      createVortex,
+      updateAreaEffects,
     };
   }
 
