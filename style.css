@@ -471,3 +471,11 @@ input[type="text"] { width: 100%; min-height: 48px; font-size: 16px; border: 1px
   0%, 100% { box-shadow: 0 0 10px rgba(233,190,87,.22), 0 5px 16px rgba(0,0,0,.42), inset 0 0 12px rgba(255,240,180,.05); transform: translateY(0); }
   50% { box-shadow: 0 0 23px rgba(233,190,87,.58), 0 5px 16px rgba(0,0,0,.42), inset 0 0 18px rgba(255,240,180,.14); transform: translateY(-1px); }
 }
+
+/* Patch 18: compact target picker for overlapping camp and dungeon interactions. */
+.interaction-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.interaction-choice { display: flex; align-items: center; gap: 12px; min-height: 66px; }
+.interaction-choice-icon { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(226,178,88,.38); background: rgba(226,178,88,.09); color: var(--gold); font-size: 1.3rem; }
+.interaction-choice span:last-child { display: grid; gap: 3px; }
+.interaction-choice small { color: var(--muted); font-size: .72rem; }
+@media (max-width: 560px) { .interaction-choice-grid { grid-template-columns: 1fr; } }

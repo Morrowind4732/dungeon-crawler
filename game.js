@@ -49,6 +49,8 @@
   const DODGE = { maxStamina: 100, combatCost: 25, duration: 0.23, speed: 1120, minSwipe: 42, outsideMargin: 7, maxGestureMs: 330, doubleFlickMs: 460, regenPerSecond: 24, regenDelay: 0.65, chargeBonusDamage: 0.85, chargeKnockbackMult: 1.6 };
   const PLAYER_SPEED_MULTIPLIER = 2;
   const ENEMY_SPEED_MULTIPLIER = 2;
+  const PLAYER_KNOCKBACK_MULTIPLIER = 2;
+  const ARCANE_BARRIER_RADIUS = 175;
 
   const DUNGEON_SIZES = {
     Small: { name: 'Small', count: 20, xpMultiplier: 1, itemId: null, label: 'Small · 20 rooms · normal XP' },
@@ -107,14 +109,14 @@
 
   const SPELLS = {
     fireball: { name: 'Fireball Volley', icon: '🔥', element: 'fire', tier: 'Low', mana: 22, price: 0, description: 'Channel a stream of aimed fireballs for 2.2 seconds. Each hit burns.' },
-    frostShards: { name: 'Frost Shards', icon: '❄', element: 'ice', tier: 'Low', mana: 24, price: 180, description: 'Launch three icy shards that damage and slow enemies.' },
+    frostShards: { name: 'Frost Shards', icon: '❄', element: 'ice', tier: 'Low', mana: 24, price: 180, description: 'Launch three high-damage icy shards that slow enemies.' },
     stoneBurst: { name: 'Stone Burst', icon: '◆', element: 'earth', tier: 'Low', mana: 30, price: 240, description: 'Blast nearby enemies outward with a ring of stone.' },
     mendingWisps: { name: 'Mending Wisps', icon: '✦', element: 'life', tier: 'Low', mana: 68, price: 420, description: 'Expensive, slow healing that restores a small amount over 10 seconds.' },
     rejuvenation: { name: 'Rejuvenation', icon: '✧', element: 'life', tier: 'Medium', mana: 82, price: 1100, description: 'Restore a moderate amount of health over six seconds.' },
     flameWave: { name: 'Flame Wave', icon: '♨', element: 'fire', tier: 'Medium', mana: 45, price: 680, description: 'Scorch a wide cone and leave burning ground behind.' },
     iceNova: { name: 'Ice Nova', icon: '✣', element: 'ice', tier: 'Medium', mana: 50, price: 760, description: 'Freeze and damage every nearby enemy.' },
     tidalSurge: { name: 'Tidal Surge', icon: '≈', element: 'water', tier: 'Medium', mana: 46, price: 720, description: 'Fire a broad surge that batters enemies backward.' },
-    arcaneBarrier: { name: 'Arcane Barrier', icon: '⬡', element: 'arcane', tier: 'Medium', mana: 58, price: 900, description: 'Create a five-second ward that destroys projectiles and keeps enemies away.' },
+    arcaneBarrier: { name: 'Arcane Barrier', icon: '⬡', element: 'arcane', tier: 'Medium', mana: 58, price: 900, description: 'Create a five-second ward that destroys projectiles and repels enemies according to their level.' },
     meteor: { name: 'Meteor', icon: '☄', element: 'fire', tier: 'High', mana: 82, price: 1900, description: 'Call down a devastating delayed impact that ignites the floor.' },
     glacialPrison: { name: 'Glacial Prison', icon: '◇', element: 'ice', tier: 'High', mana: 78, price: 2050, description: 'Lock nearby enemies in supernatural cold for several seconds.' },
     earthquake: { name: 'Earthquake', icon: '✹', element: 'earth', tier: 'High', mana: 76, price: 2200, description: 'Release repeated ground shocks around you.' },
@@ -932,6 +934,7 @@
       damage: Math.round((extra.damage || base.damage) * alphaDamage * (1 + (floorLevel - 1) * 0.13)),
       mass: (extra.mass || base.mass) * (isAlpha ? 1.35 : 1), color: extra.color || base.color,
       xp: Math.round((extra.xp || base.xp) * alphaXp * (1 + floorLevel * 0.08)),
+      level: Math.max(1, Number(extra.level) || floorLevel + (isAlpha ? 1 : 0) + (type === 'boss' ? 2 : 0) - (extra.mini ? 1 : 0)),
       cooldown: rand(0.2, 1.4), state: 'idle', stateTimer: 0,
       orbitAngle: rand(0, TAU), contactCooldown: 0.35,
       swarmAngle: rand(0, TAU), swarmTurn: choose([-1, 1]) * rand(0.05, 0.16),
@@ -1216,8 +1219,9 @@
     enemy.hp -= amount;
     enemy.hitFlash = 0.12;
     const n = normalize(dx, dy);
-    enemy.vx += n.x * knockback / enemy.mass;
-    enemy.vy += n.y * knockback / enemy.mass;
+    const appliedKnockback = Math.max(0, Number(knockback) || 0) * PLAYER_KNOCKBACK_MULTIPLIER;
+    enemy.vx += n.x * appliedKnockback / enemy.mass;
+    enemy.vy += n.y * appliedKnockback / enemy.mass;
     const prefix = [critical ? 'CRIT' : '', options.label || ''].filter(Boolean).join(' ');
     const damageText = prefix ? `${prefix} ${amount}` : `${amount}`;
     game.particles.push({ type: 'text', x: enemy.x, y: enemy.y - enemy.radius, text: damageText, t: 0, duration: prefix ? 0.88 : 0.65, color: critical ? '#fff06a' : (options.color || '#ffe6a7') });
@@ -2132,30 +2136,37 @@
     }
   }
 
-  function updateInteractionPrompt() {
-    let closest = null;
+  function nearbyInteractables() {
+    const nearby = [];
     const p = game.player;
+    if (!p) return nearby;
     if (game.scene === 'camp') {
-      const objects = campInteractables();
-      for (const obj of objects) {
-        const d = dist(p.x, p.y, obj.x, obj.y);
-        if (d < obj.range && (!closest || d < closest.distance)) closest = { ...obj, distance: d };
+      for (const obj of campInteractables()) {
+        const distance = dist(p.x, p.y, obj.x, obj.y);
+        if (distance < obj.range) nearby.push({ ...obj, distance });
       }
       for (const npc of game.campNpcs) {
-        const d = dist(p.x, p.y, npc.x, npc.y);
-        if (d < 90 && (!closest || d < closest.distance)) closest = { kind: 'npc', npc, label: `Talk to ${npc.name}`, distance: d };
+        const distance = dist(p.x, p.y, npc.x, npc.y);
+        if (distance < 90) nearby.push({ kind: 'npc', npc, label: `Talk to ${npc.name}`, distance });
       }
     } else {
-      for (const f of game.roomFeatures) {
-        const d = dist(p.x, p.y, f.x, f.y);
-        if (d < 110 && (!closest || d < closest.distance)) closest = { kind: 'feature', feature: f, label: featureLabel(f), distance: d };
+      for (const feature of game.roomFeatures) {
+        const distance = dist(p.x, p.y, feature.x, feature.y);
+        if (distance < 110) nearby.push({ kind: 'feature', feature, label: featureLabel(feature), distance });
       }
     }
+    return nearby.sort((a, b) => a.distance - b.distance);
+  }
+
+  function updateInteractionPrompt() {
+    const nearby = nearbyInteractables();
+    const closest = nearby[0] || null;
     game.currentInteractable = closest;
+    game.nearbyInteractables = nearby;
     if (closest) {
-      promptEl.textContent = closest.label;
+      promptEl.textContent = nearby.length > 1 ? `${nearby.length} nearby interactions` : closest.label;
       promptEl.classList.remove('hidden');
-      interactBtn.textContent = closest.kind === 'npc' ? 'Talk' : closest.kind === 'feature' ? 'Use' : closest.label.split(' ')[0];
+      interactBtn.textContent = nearby.length > 1 ? 'Choose' : closest.kind === 'npc' ? 'Talk' : closest.kind === 'feature' ? 'Use' : closest.label.split(' ')[0];
     } else {
       promptEl.classList.add('hidden');
       interactBtn.textContent = 'Use';
@@ -2186,8 +2197,24 @@
     return 'Interact';
   }
 
-  function performInteraction() {
-    const obj = game.currentInteractable;
+  function interactionIcon(obj) {
+    if (obj.kind === 'npc') {
+      if (obj.npc?.serviceType === 'mage') return '✦';
+      if (obj.npc?.serviceType === 'bagSmith') return '⚒';
+      return '◆';
+    }
+    if (obj.kind === 'dungeon') return '🚪';
+    if (obj.kind === 'supplyShop') return '🎒';
+    if (obj.kind === 'blacksmith') return '⚒';
+    if (obj.kind === 'storage') return '▣';
+    if (obj.kind === 'campfire') return '🔥';
+    if (obj.kind === 'feature') {
+      return { mining: '⛏', woodcutting: '🪓', fishing: '◉', smithing: '⚒', puzzle: '◇', chest: '▣', shrine: '✦', escape: '↥', entranceExit: '↥', victoryExit: '↥' }[obj.feature?.type] || '•';
+    }
+    return '•';
+  }
+
+  function interactWithTarget(obj) {
     if (!obj) return;
     if (obj.kind === 'dungeon') showFloorSelection();
     else if (obj.kind === 'supplyShop') showSupplyShop();
@@ -2201,6 +2228,27 @@
       saveGame();
     } else if (obj.kind === 'npc') showNpc(obj.npc);
     else if (obj.kind === 'feature') interactFeature(obj.feature);
+  }
+
+  function showInteractionPicker(targets) {
+    const buttons = targets.map((obj, index) => `
+      <button class="panel-btn interaction-choice" data-interaction-index="${index}">
+        <span class="interaction-choice-icon">${interactionIcon(obj)}</span>
+        <span><strong>${escapeHtml(obj.label)}</strong><small>${Math.round(obj.distance)} away</small></span>
+      </button>`).join('');
+    showModal('Choose Interaction', `<div class="interaction-choice-grid">${buttons}</div>`);
+    modalBody.querySelectorAll('.interaction-choice').forEach(button => button.addEventListener('click', () => {
+      const chosen = targets[Number(button.dataset.interactionIndex)];
+      hideModal();
+      interactWithTarget(chosen);
+    }));
+  }
+
+  function performInteraction() {
+    const targets = nearbyInteractables();
+    if (!targets.length) return;
+    if (targets.length === 1) { interactWithTarget(targets[0]); return; }
+    showInteractionPicker(targets);
   }
 
   function interactFeature(feature) {
@@ -2301,9 +2349,14 @@
     });
   }
 
+  function healingPotionPrice() {
+    return Math.round(100 * Math.pow(1.1, itemCount('healing_potion')));
+  }
+
   function showSupplyShop() {
+    const potionPrice = healingPotionPrice();
     const goods = [
-      { item: { id: 'healing_potion', name: 'Healing Potion', type: 'consumable', qty: 1, stackable: true, description: 'Restores 45 health.' }, price: 18, level: 1 },
+      { item: { id: 'healing_potion', name: 'Healing Potion', type: 'consumable', qty: 1, stackable: true, description: 'Restores 45 health. Price rises 10% for every potion currently carried.' }, price: potionPrice, level: 1 },
       { item: { id: 'escape_rope', name: 'Escape Rope', type: 'consumable', qty: 1, stackable: true, description: 'Safely leave a dungeon with all inventory.' }, price: 95, level: 1 },
       { item: { id: 'survey_charm', name: 'Cartographer’s Charter', type: 'consumable', qty: 1, stackable: true, rarity: 'rare', description: 'Generates a Medium 40-room floor with +15% monster XP.' }, price: 240, level: 3 },
       { item: { id: 'grand_survey_charm', name: 'Grand Cartographer’s Charter', type: 'consumable', qty: 1, stackable: true, rarity: 'epic', description: 'Generates a Large 60-room floor with +35% monster XP.' }, price: 575, level: 6 },
@@ -3421,16 +3474,33 @@
     }
     if (p.barrierTimer > 0) {
       for (const projectile of game.projectiles) {
-        if (projectile.owner === 'enemy' && projectile.life > 0 && dist(projectile.x, projectile.y, p.x, p.y) < 175 + projectile.radius) destroyProjectile(projectile);
+        if (projectile.owner === 'enemy' && projectile.life > 0 && dist(projectile.x, projectile.y, p.x, p.y) < ARCANE_BARRIER_RADIUS + projectile.radius) destroyProjectile(projectile);
       }
       for (const enemy of game.enemies) {
         if (enemy.dead) continue;
         const d = dist(enemy.x, enemy.y, p.x, p.y);
-        if (d < 175 + enemy.radius && d > .1) {
-          const n = normalize(enemy.x - p.x, enemy.y - p.y);
-          enemy.vx += n.x * 920 * dt;
-          enemy.vy += n.y * 920 * dt;
+        const barrierEdge = ARCANE_BARRIER_RADIUS + enemy.radius;
+        if (d >= barrierEdge || d <= .1) continue;
+        const n = normalize(enemy.x - p.x, enemy.y - p.y);
+        const enemyLevel = Math.max(1, Number(enemy.level) || currentFloor()?.floorNumber || 1);
+        const levelGap = enemyLevel - game.character.level;
+        if (levelGap < 0) {
+          const targetDistance = barrierEdge + 14 + Math.min(30, Math.abs(levelGap) * 5);
+          enemy.x = clamp(p.x + n.x * targetDistance, enemy.radius + 32, game.roomWorld.w - enemy.radius - 32);
+          enemy.y = clamp(p.y + n.y * targetDistance, enemy.radius + 32, game.roomWorld.h - enemy.radius - 32);
+          const launch = 900 + Math.min(900, Math.abs(levelGap) * 180);
+          enemy.vx += n.x * launch / Math.max(.55, enemy.mass);
+          enemy.vy += n.y * launch / Math.max(.55, enemy.mass);
+          continue;
         }
+        const resistance = levelGap === 0 ? 1 : levelGap === 1 ? .68 : levelGap === 2 ? .4 : levelGap === 3 ? .2 : levelGap === 4 ? .08 : 0;
+        if (resistance <= 0) continue;
+        const penetration = barrierEdge - d;
+        const positionalPush = Math.min(penetration, 520 * resistance * dt);
+        enemy.x = clamp(enemy.x + n.x * positionalPush, enemy.radius + 32, game.roomWorld.w - enemy.radius - 32);
+        enemy.y = clamp(enemy.y + n.y * positionalPush, enemy.radius + 32, game.roomWorld.h - enemy.radius - 32);
+        enemy.vx += n.x * 1450 * resistance * dt / Math.max(.65, enemy.mass);
+        enemy.vy += n.y * 1450 * resistance * dt / Math.max(.65, enemy.mass);
       }
     }
     if (p.spellCast) {
@@ -3603,7 +3673,7 @@
       const base = Math.atan2(dir.y, dir.x);
       for (const offset of [-.16, 0, .16]) {
         const angle = base + offset;
-        fireProjectile(p.x, p.y, Math.cos(angle) * 480, Math.sin(angle) * 480, damage * .72, '#9bd9ff', 9, 'player', { status: 'slow', statusDuration: 3.1, knockback: 120, sourceSpell: spellId });
+        fireProjectile(p.x, p.y, Math.cos(angle) * 480, Math.sin(angle) * 480, damage * 1.25, '#9bd9ff', 9, 'player', { status: 'slow', statusDuration: 3.1, knockback: 120, sourceSpell: spellId });
       }
     } else if (spellId === 'stoneBurst') {
       for (const enemy of game.enemies) {
@@ -4211,7 +4281,7 @@
     if (!p) return;
     if (p.barrierTimer > 0) {
       const pulse = 1 + Math.sin(performance.now() / 120) * .035;
-      drawIsoGroundEllipse(p.x, p.y, 175 * pulse, 175 * pulse, 'rgba(154,120,255,.055)', 'rgba(190,160,255,.72)', 5, 12);
+      drawIsoGroundEllipse(p.x, p.y, ARCANE_BARRIER_RADIUS * pulse, ARCANE_BARRIER_RADIUS * pulse, 'rgba(154,120,255,.055)', 'rgba(190,160,255,.72)', 5, 12);
     }
     if (p.silenceTimer > 0) drawIsoGroundEllipse(p.x, p.y, 470, 470, 'rgba(129,83,170,.025)', 'rgba(214,181,255,.25)', 3);
   }
@@ -5083,7 +5153,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, isOutsideCircleFlick, isStationarySpellTap, registerSpellTap, resetTapSequence, ultimateCooldownRemainingMs, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, toggleSpellAutoCast, stopSpellAutoCast, updateSpellAutoCast, isSpellAutoCastActive, showMageShop, showBagSmith, showSpellLoadout, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, PLAYER_KNOCKBACK_MULTIPLIER, ARCANE_BARRIER_RADIUS, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, isOutsideCircleFlick, isStationarySpellTap, registerSpellTap, resetTapSequence, ultimateCooldownRemainingMs, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, ensureCampServices, normalizeMagic, spellSlotsUnlocked, castSpell, castEquippedSpell, toggleSpellAutoCast, stopSpellAutoCast, updateSpellAutoCast, isSpellAutoCastActive, showMageShop, showBagSmith, showSpellLoadout, healingPotionPrice, nearbyInteractables, performInteraction, interactWithTarget, updatePlayerMagic, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();

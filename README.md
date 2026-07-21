@@ -1,35 +1,42 @@
-# Dungeon Crawler — Isometric Patch 17
+# Dungeon Crawler — Isometric Patch 18
 
 Open `index.html` in a modern desktop or mobile browser. No server, package installation, or external assets are required.
 
-## Patch 17 highlights
+## Patch 18 highlights
 
-### Toggle spell casting
+### Combat impact and spell balance
 
-- Spell slots 1–4 now use toggle casting instead of requiring the same cast command repeatedly
-- Double-tap the **left half** to toggle slot 1 on or off
-- Double-tap the **right half** to toggle slot 2 on or off
-- Triple-tap the **left half** to toggle slot 3 on or off
-- Triple-tap the **right half** to toggle slot 4 on or off
-- Tapping a normal spell button or pressing keyboard keys 1–4 uses the same toggle behavior
-- Each normal slot toggles independently, allowing more than one prepared spell to remain active when the player has enough mana
-- Channeled spells complete and automatically begin again, while instant, healing, barrier, and control spells repeat at intervals suited to their effects
-- Repeating the same command turns the spell off immediately, including an active Fireball Volley or Earthquake channel
-- Auto-casting stops automatically when there is not enough mana for the next cast
-- The active slot pulses and displays **ON** so its state is always visible
-- Spell slot 5 remains a deliberate tap-only Ultimate with its mana cost and 35-second cooldown
+- All player-caused knockback has been doubled
+- Arcane Barrier now compares the player's level with each creature's level
+- Lower-level enemies are expelled completely beyond the barrier ring
+- Equal-level enemies receive a strong push
+- Higher-level enemies increasingly resist the barrier, and enemies five or more levels above the player cannot be displaced by it
+- Frost Shards projectile damage has been increased by about 74% so its rapid mana consumption delivers meaningful burst damage
+
+### Interaction selection
+
+- Interact now scans every valid nearby NPC, camp service, object, or dungeon feature
+- One available target still opens immediately
+- Multiple nearby targets open a compact selection menu ordered by distance
+- The game pauses while the target selector is open, preventing accidental movement or attacks
+
+### Potion economy
+
+- A healing potion costs 100 gold while the player carries none
+- Each potion currently carried increases the next potion's price by 10%, compounded and rounded to whole gold
+- Example prices: 100, 110, 121, 133, 146, 161...
+- Drinking or otherwise removing potions lowers the next purchase price again
 
 ## Features carried forward
 
-- Strict outside-the-stick-circle dodge flicks for deliberate positioning
-- Camp mage, fourteen elemental/support spells, mana, and 15-second loadout swap lock
+- Toggle casting for normal spell slots and a deliberate mana-plus-cooldown Ultimate slot
+- Strict outside-the-stick-circle dodge flicks for precise positioning
+- Camp mage, elemental/support magic, mana, and spell loadout progression
 - Walking pack blacksmith with increasingly expensive inventory upgrades
-- Clean Dungeon Crawler save screen and game-style expedition selector
+- Clean save screen, expedition selector, and isometric dungeon map
 - Context-sensitive right-side movement/aim controls
 - Full-bodied camp inhabitants with persistent individualized gear
-- Isometric full dungeon map matching playable-room directions
 - Special monster variants, environmental hazards, and the reworked Horned Warden boss
 - Guaranteed retreat through each floor entrance
-- Purchasable larger dungeon expeditions with increased monster XP
 
 Keyed doors and key/puzzle-gated backtracking remain reserved for a future patch.
