@@ -130,8 +130,8 @@
     camera: { x: 0, y: 0 },
     input: { x: 0, y: 0, aimX: 0, aimY: -1, aimMode: false, keys: new Set(), manualHeld: false, interactQueued: false },
     joystick: {
-      first: { pointerId: null, active: false, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
-      second: { pointerId: null, active: false, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
+      first: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
+      second: { pointerId: null, active: false, role: null, originX: 0, originY: 0, vectorX: 0, vectorY: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, maxDistance: 0 },
     },
     autoAttack: true,
     lastTime: 0,
@@ -244,6 +244,49 @@
     };
   }
 
+  function generateCampNpcAppearance(role = 'Traveler') {
+    const skin = choose(['#d8ae7d', '#bd895d', '#8f6045', '#e0b98d', '#a66f50']);
+    const hair = choose(['#2b2019', '#5d3822', '#8a5a2d', '#b79a68', '#3d3029', '#6b6a66']);
+    const cloth = choose(['#7f4d3b', '#48647a', '#5f7042', '#756047', '#684f78', '#39706a', '#86613b']);
+    const clothAlt = choose(['#312c29', '#4a382d', '#343a3d', '#40384a', '#2f4436']);
+    const metal = choose(['#8f9699', '#a2875e', '#69747b', '#b3aaa0']);
+    const roleGear = {
+      Alchemist: { chestStyle: 'robe', weapon: 'staff', helmet: 'hood', shield: false },
+      Cook: { chestStyle: 'apron', weapon: 'dagger', helmet: 'cap', shield: false },
+      Researcher: { chestStyle: 'robe', weapon: 'staff', helmet: choose(['hood', 'none']), shield: false },
+      Tinker: { chestStyle: 'leather', weapon: 'hammer', helmet: choose(['cap', 'openHelm']), shield: false },
+      Collector: { chestStyle: 'leather', weapon: choose(['spear', 'sword']), helmet: choose(['none', 'hood', 'openHelm']), shield: chance(.45) },
+      Historian: { chestStyle: choose(['robe', 'leather']), weapon: choose(['staff', 'sword']), helmet: choose(['none', 'hood']), shield: chance(.25) },
+      Traveler: { chestStyle: choose(['leather', 'plate', 'robe']), weapon: choose(['sword', 'spear', 'hammer', 'dagger']), helmet: choose(['none', 'hood', 'openHelm']), shield: chance(.35) },
+    };
+    const gear = roleGear[role] || roleGear.Traveler;
+    return {
+      skin, hair, cloth, clothAlt, metal,
+      chestStyle: gear.chestStyle,
+      weapon: gear.weapon,
+      helmet: gear.helmet,
+      shield: gear.shield,
+      cape: chance(.38),
+      capeColor: choose(['#623b35', '#314f62', '#455936', '#5b455f', '#66512d']),
+      gloves: chance(.55),
+      boots: choose(['#30251f', '#453124', '#282b2d']),
+      hairStyle: choose(['short', 'long', 'crest', 'bald']),
+    };
+  }
+
+  function ensureCampNpcAppearances(npcs) {
+    let changed = false;
+    for (const npc of npcs || []) {
+      if (!npc.appearance) {
+        npc.appearance = generateCampNpcAppearance(npc.role);
+        changed = true;
+      }
+      npc.facingX = Number(npc.facingX) || (npc.vx < 0 ? -1 : 1);
+      npc.facingY = Number(npc.facingY) || 0;
+    }
+    return changed;
+  }
+
   function generateCampNpcs() {
     const first = ['Mara', 'Tobin', 'Edda', 'Rusk', 'Pella', 'Corvin', 'Nim', 'Alden', 'Sable', 'Bran'];
     const roles = ['Alchemist', 'Cook', 'Researcher', 'Tinker', 'Collector', 'Historian'];
@@ -259,13 +302,17 @@
     return Array.from({ length: 3 }, (_, i) => {
       const target = choose(targets);
       const amount = Math.round(randInt(target.min, target.max) / 5) * 5;
+      const role = choose(roles);
       return {
         id: uid('npc'),
         name: choose(first),
-        role: choose(roles),
+        role,
         x: 600 + i * 280 + rand(-80, 80),
         y: 780 + rand(-180, 160),
         vx: rand(-12, 12), vy: rand(-12, 12), wanderTimer: rand(1, 4),
+        facingX: chance(.5) ? 1 : -1,
+        facingY: 0,
+        appearance: generateCampNpcAppearance(role),
         locked: false,
         quest: {
           id: uid('quest'), itemId: target.itemId, itemName: target.itemName, amount,
@@ -346,7 +393,7 @@
       card.className = 'save-slot';
       if (data) {
         card.innerHTML = `
-          <div><h3>Slot ${i}: ${escapeHtml(data.name)}</h3><p>Level ${data.level} · Floor ${data.maxFloorUnlocked} unlocked · ${data.coins || 0} coins</p></div>
+          <div><h3>Slot ${i}: ${escapeHtml(data.name)}</h3><div class="slot-meta"><span>Lv ${data.level}</span><span>Floor ${data.maxFloorUnlocked}</span><span>${data.coins || 0} gold</span></div></div>
           <div class="slot-actions"><button class="panel-btn load-slot">Continue</button><button class="panel-btn danger delete-slot">Delete</button></div>`;
         card.querySelector('.load-slot').addEventListener('click', () => startWithCharacter(i, data));
         card.querySelector('.delete-slot').addEventListener('click', () => {
@@ -354,7 +401,7 @@
         });
       } else {
         card.innerHTML = `
-          <div><h3>Slot ${i}: Empty</h3><p>Create a new persistent adventurer.</p></div>
+          <div><h3>Slot ${i}: Empty</h3></div>
           <div class="slot-actions"><button class="panel-btn new-slot">New Character</button></div>`;
         card.querySelector('.new-slot').addEventListener('click', () => showCreateCharacter(i));
       }
@@ -422,6 +469,7 @@
     normalizeEquipment(game.character);
     normalizeFloorPersistence(game.character);
     game.character.campNpcs ||= generateCampNpcs();
+    ensureCampNpcAppearances(game.character.campNpcs);
     game.character.quests ||= [];
     game.character.floors ||= {};
     game.character.storage ||= [];
@@ -1173,6 +1221,11 @@
       }
       npc.x = clamp(npc.x + npc.vx * dt, 260, 1540);
       npc.y = clamp(npc.y + npc.vy * dt, 570, 1160);
+      if (Math.hypot(npc.vx, npc.vy) > 2) {
+        const facing = normalize(npc.vx, npc.vy);
+        npc.facingX = facing.x;
+        npc.facingY = facing.y;
+      }
     }
     const dFire = dist(p.x, p.y, 900, 800);
     if (dFire < 70) {
@@ -2171,59 +2224,147 @@
     }));
   }
 
-  function showFloorSelection() {
-    const rows = [];
-    const mediumCount = itemCount('survey_charm');
-    const largeCount = itemCount('grand_survey_charm');
-    const hugeCount = itemCount('ancient_survey_seal');
-    for (let n = 1; n <= game.character.maxFloorUnlocked; n++) {
-      const floor = getFloor(n);
+  function showFloorSelection(initialFloor = null) {
+    const maximumFloor = Math.max(1, game.character.maxFloorUnlocked || 1);
+    let selectedFloor = clamp(Number(initialFloor) || Number(game.character.lastFloorSelected) || maximumFloor, 1, maximumFloor);
+    let selectedSize = 'Small';
+
+    const surveyCountFor = (size) => size.itemId ? itemCount(size.itemId) : Infinity;
+    const sizeBonusLabel = (size) => size.xpMultiplier > 1 ? `+${Math.round((size.xpMultiplier - 1) * 100)}% XP` : 'Normal XP';
+    const sizeTokenLabel = (sizeName, count) => {
+      if (sizeName === 'Small') return 'FREE';
+      if (sizeName === 'Medium') return `CHARM ×${count}`;
+      if (sizeName === 'Large') return `CHARTER ×${count}`;
+      return `SEAL ×${count}`;
+    };
+
+    showModal('Choose Expedition', '<div id="expeditionSelectorRoot"></div>');
+
+    const renderSelector = () => {
+      game.character.lastFloorSelected = selectedFloor;
+      const root = $('expeditionSelectorRoot');
+      if (!root) return;
+      const floor = getFloor(selectedFloor);
+      const floorTabs = Array.from({ length: maximumFloor }, (_, index) => {
+        const number = index + 1;
+        const stored = getFloor(number);
+        const stateClass = stored?.completed ? 'completed' : stored ? 'active-run' : 'new-floor';
+        const marker = stored?.completed ? '✓' : stored ? '•' : '';
+        return `<button class="floor-chip ${stateClass} ${number === selectedFloor ? 'selected' : ''}" data-select-floor="${number}" aria-label="Select floor ${number}"><span>${number}</span><small>${marker}</small></button>`;
+      }).join('');
+
+      let content = '';
       if (floor) {
-        const multiplier = floor.xpMultiplier || DUNGEON_SIZES[floor.sizeName]?.xpMultiplier || 1;
-        const bonusText = multiplier > 1 ? `+${Math.round((multiplier - 1) * 100)}% monster XP` : 'normal monster XP';
-        const status = `${floor.sizeName} · ${bonusText} · ${floor.completed ? 'Completed' : `${Object.values(floor.rooms).filter(r => r.discovered).length}/${floor.roomCount} rooms discovered`}`;
-        rows.push(`<div class="quest-card"><h3>Floor ${n} <span class="muted">· Recommended level ${n}</span></h3><p>${status}</p><div class="menu-grid">
-          <button class="panel-btn enter-floor" data-floor="${n}">Enter / Resume</button>
-          ${floor.completed ? `<button class="panel-btn rerun-floor" data-floor="${n}">Rerun same layout</button>` : ''}
-          <button class="panel-btn danger reset-floor" data-floor="${n}">Reset layout</button>
-        </div></div>`);
+        const size = dungeonSizeData(floor.sizeName);
+        const discovered = Object.values(floor.rooms).filter(room => room.discovered).length;
+        const progress = floor.roomCount ? Math.round(discovered / floor.roomCount * 100) : 0;
+        content = `
+          <section class="floor-stage-panel existing-floor">
+            <div class="floor-door-emblem ${floor.completed ? 'completed' : ''}">
+              <span class="floor-door-number">${selectedFloor}</span>
+              <span class="floor-door-status">${floor.completed ? 'CLEARED' : 'IN PROGRESS'}</span>
+            </div>
+            <div class="floor-stage-details">
+              <div class="floor-stat-row">
+                <span><b>${escapeHtml(floor.sizeName)}</b><small>SIZE</small></span>
+                <span><b>${discovered}/${floor.roomCount}</b><small>ROOMS</small></span>
+                <span><b>${sizeBonusLabel(size)}</b><small>REWARD</small></span>
+                <span><b>Lv ${selectedFloor}</b><small>RECOMMENDED</small></span>
+              </div>
+              <div class="floor-progress-track"><i style="width:${progress}%"></i></div>
+              <button class="expedition-primary enter-floor" data-floor="${selectedFloor}">${floor.completed ? 'ENTER CLEARED FLOOR' : 'RESUME EXPEDITION'}</button>
+              <div class="expedition-secondary-actions">
+                ${floor.completed ? `<button class="expedition-secondary rerun-floor" data-floor="${selectedFloor}">Rerun Layout</button>` : ''}
+                <button class="expedition-secondary danger reset-floor" data-floor="${selectedFloor}">New Layout</button>
+              </div>
+            </div>
+          </section>`;
       } else {
-        rows.push(`<div class="quest-card"><h3>Floor ${n} <span class="muted">· Recommended level ${n}</span></h3><p>Choose the expedition size. Small is the default; larger layouts consume purchased survey items and grant more monster XP.</p><div class="menu-grid">
-          <button class="panel-btn generate-floor" data-floor="${n}" data-size="Small">${DUNGEON_SIZES.Small.label}<br><span class="muted">Free</span></button>
-          <button class="panel-btn generate-floor" data-floor="${n}" data-size="Medium" ${mediumCount ? '' : 'disabled'}>${DUNGEON_SIZES.Medium.label}<br><span class="muted">Charters: ${mediumCount}</span></button>
-          <button class="panel-btn generate-floor" data-floor="${n}" data-size="Large" ${largeCount ? '' : 'disabled'}>${DUNGEON_SIZES.Large.label}<br><span class="muted">Grand Charters: ${largeCount}</span></button>
-          <button class="panel-btn generate-floor" data-floor="${n}" data-size="Huge" ${hugeCount ? '' : 'disabled'}>${DUNGEON_SIZES.Huge.label}<br><span class="muted">Ancient Seals: ${hugeCount}</span></button>
-        </div></div>`);
+        const cards = Object.entries(DUNGEON_SIZES).map(([name, size], index) => {
+          const count = surveyCountFor(size);
+          const unavailable = size.itemId && count < 1;
+          const diamonds = '◆'.repeat(index + 1);
+          return `
+            <button class="dungeon-size-card ${selectedSize === name ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}" data-size-choice="${name}" ${unavailable ? 'disabled' : ''}>
+              <span class="size-diamonds">${diamonds}</span>
+              <strong>${name}</strong>
+              <span class="size-room-count">${size.count}<small>ROOMS</small></span>
+              <span class="size-xp-bonus">${sizeBonusLabel(size)}</span>
+              <span class="size-cost">${sizeTokenLabel(name, Number.isFinite(count) ? count : 0)}</span>
+            </button>`;
+        }).join('');
+        const selected = dungeonSizeData(selectedSize);
+        const canBegin = !selected.itemId || surveyCountFor(selected) > 0;
+        content = `
+          <section class="floor-stage-panel new-expedition">
+            <div class="floor-door-emblem unopened">
+              <span class="floor-door-number">${selectedFloor}</span>
+              <span class="floor-door-status">UNCHARTED</span>
+            </div>
+            <div class="floor-size-section">
+              <div class="dungeon-size-grid">${cards}</div>
+              <button class="expedition-primary begin-expedition" data-floor="${selectedFloor}" ${canBegin ? '' : 'disabled'}>BEGIN EXPEDITION</button>
+            </div>
+          </section>`;
       }
-    }
-    showModal('Dungeon Floors', `
-      <p class="muted">Every newly generated floor is Small unless you deliberately spend a survey item. Bigger expeditions are longer and more dangerous, but their monsters award substantially more experience.</p>
-      ${rows.join('')}
-      <div class="section-title">Survey inventory</div>
-      <p>Medium Charters: ${mediumCount} · Grand Charters: ${largeCount} · Ancient Seals: ${hugeCount}</p>
-    `);
-    modalBody.querySelectorAll('.enter-floor').forEach(btn => btn.addEventListener('click', () => {
-      const n = Number(btn.dataset.floor);
-      hideModal(); enterDungeon(n);
-    }));
-    modalBody.querySelectorAll('.generate-floor').forEach(btn => btn.addEventListener('click', () => {
-      const n = Number(btn.dataset.floor);
-      const sizeName = btn.dataset.size;
-      const size = dungeonSizeData(sizeName);
-      if (size.itemId && itemCount(size.itemId) < 1) { toast('You do not have the required survey item.'); return; }
-      if (size.itemId) removeItem(size.itemId, 1);
-      hideModal(); enterDungeon(n, { size });
-    }));
-    modalBody.querySelectorAll('.rerun-floor').forEach(btn => btn.addEventListener('click', () => {
-      const n = Number(btn.dataset.floor);
-      rerunFloor(n); hideModal(); enterDungeon(n);
-    }));
-    modalBody.querySelectorAll('.reset-floor').forEach(btn => btn.addEventListener('click', () => {
-      const n = Number(btn.dataset.floor);
-      if (!confirm(`Generate an entirely new layout for Floor ${n}?`)) return;
-      delete game.character.floors[floorKey(n)];
-      saveGame(); hideModal(); showFloorSelection();
-    }));
+
+      root.innerHTML = `
+        <div class="expedition-menu">
+          <div class="floor-carousel">
+            <button class="floor-arrow previous-floor" aria-label="Previous floor" ${selectedFloor <= 1 ? 'disabled' : ''}>‹</button>
+            <div class="floor-chip-strip">${floorTabs}</div>
+            <button class="floor-arrow next-floor" aria-label="Next floor" ${selectedFloor >= maximumFloor ? 'disabled' : ''}>›</button>
+          </div>
+          ${content}
+        </div>`;
+
+      root.querySelectorAll('[data-select-floor]').forEach(button => button.addEventListener('click', () => {
+        selectedFloor = Number(button.dataset.selectFloor);
+        selectedSize = 'Small';
+        renderSelector();
+      }));
+      root.querySelector('.previous-floor')?.addEventListener('click', () => {
+        selectedFloor = Math.max(1, selectedFloor - 1);
+        selectedSize = 'Small';
+        renderSelector();
+      });
+      root.querySelector('.next-floor')?.addEventListener('click', () => {
+        selectedFloor = Math.min(maximumFloor, selectedFloor + 1);
+        selectedSize = 'Small';
+        renderSelector();
+      });
+      root.querySelectorAll('[data-size-choice]').forEach(button => button.addEventListener('click', () => {
+        selectedSize = button.dataset.sizeChoice;
+        renderSelector();
+      }));
+      root.querySelector('.enter-floor')?.addEventListener('click', () => {
+        hideModal();
+        enterDungeon(selectedFloor);
+      });
+      root.querySelector('.begin-expedition')?.addEventListener('click', () => {
+        const size = dungeonSizeData(selectedSize);
+        if (size.itemId && itemCount(size.itemId) < 1) { toast('You do not have the required survey item.'); return; }
+        if (size.itemId) removeItem(size.itemId, 1);
+        hideModal();
+        enterDungeon(selectedFloor, { size });
+      });
+      root.querySelector('.rerun-floor')?.addEventListener('click', () => {
+        rerunFloor(selectedFloor);
+        hideModal();
+        enterDungeon(selectedFloor);
+      });
+      root.querySelector('.reset-floor')?.addEventListener('click', () => {
+        if (!confirm(`Generate an entirely new layout for Floor ${selectedFloor}?`)) return;
+        delete game.character.floors[floorKey(selectedFloor)];
+        selectedSize = 'Small';
+        saveGame();
+        renderSelector();
+      });
+
+      requestAnimationFrame(() => root.querySelector('.floor-chip.selected')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }));
+    };
+
+    renderSelector();
   }
 
   function rerunFloor(n) {
@@ -2560,7 +2701,7 @@
       <div class="menu-grid"><button class="panel-btn hand-choice" data-value="standard">Actions right</button><button class="panel-btn hand-choice" data-value="reversed">Actions left</button></div>
       <div class="section-title">Thumbstick</div>
       <div class="menu-grid"><button class="panel-btn stick-choice" data-value="fixed">Visible home position</button><button class="panel-btn stick-choice" data-value="floating">Floating only</button></div>
-      <p class="muted">Current: action buttons ${s.handedness === 'reversed' ? 'left' : 'right'}, ${s.joystick || 'fixed'} thumbsticks. The left half of the screen is always MOVE and the right half is always AIM. Either stick works independently.</p>
+      <p class="muted">Current: action buttons ${s.handedness === 'reversed' ? 'left' : 'right'}, ${s.joystick || 'fixed'} thumbsticks. Left is always MOVE. Right is MOVE while safe and switches to AIM when enemies or hostile projectiles are active.</p>
     `);
     modalBody.querySelectorAll('.hand-choice').forEach(btn => btn.addEventListener('click', () => {
       s.handedness = btn.dataset.value; applyControlSettings(); saveGame(); showSettings();
@@ -2745,10 +2886,10 @@
     resetStickVisual(joystickBase, joystickKnob);
     resetStickVisual(secondaryJoystickBase, secondaryJoystickKnob);
     joystickLabel.textContent = 'MOVE';
-    secondaryJoystickLabel.textContent = 'AIM';
-    touchControls.classList.remove('twin-stick-active', 'move-stick-active', 'aim-stick-active', 'joystick-active');
+    secondaryJoystickLabel.textContent = isAutoAttackThreatActive() ? 'AIM' : 'MOVE';
+    touchControls.classList.remove('twin-stick-active', 'move-stick-active', 'aim-stick-active', 'secondary-stick-active', 'joystick-active');
     setStickRoleVisual('first', 'move');
-    setStickRoleVisual('second', 'aim');
+    setStickRoleVisual('second', isAutoAttackThreatActive() ? 'aim' : 'move');
   }
 
   function stickParts(slot) {
@@ -2770,7 +2911,11 @@
   }
 
   function twinStickRoles() {
-    return game.joystick.first.active && game.joystick.second.active ? { move: 'first', aim: 'second' } : null;
+    const entries = ['first', 'second'].filter(slot => game.joystick[slot].active);
+    if (entries.length < 2) return null;
+    const move = entries.find(slot => game.joystick[slot].role === 'move') || null;
+    const aim = entries.find(slot => game.joystick[slot].role === 'aim') || null;
+    return { move, aim };
   }
 
   function setStickRoleVisual(slot, role) {
@@ -2781,22 +2926,24 @@
   }
 
   function syncTouchControlRoles() {
-    const moveState = game.joystick.first;
-    const aimState = game.joystick.second;
-    const moveActive = moveState.active;
-    const aimActive = aimState.active;
-    touchControls.classList.toggle('twin-stick-active', moveActive && aimActive);
-    touchControls.classList.toggle('move-stick-active', moveActive);
-    touchControls.classList.toggle('aim-stick-active', aimActive);
-    touchControls.classList.toggle('joystick-active', moveActive || aimActive);
+    const first = game.joystick.first;
+    const second = game.joystick.second;
+    const moveState = first.active && first.role === 'move' ? first : second.active && second.role === 'move' ? second : null;
+    const aimState = first.active && first.role === 'aim' ? first : second.active && second.role === 'aim' ? second : null;
+    const activeCount = Number(first.active) + Number(second.active);
+    touchControls.classList.toggle('twin-stick-active', activeCount > 1);
+    touchControls.classList.toggle('move-stick-active', !!moveState);
+    touchControls.classList.toggle('aim-stick-active', !!aimState);
+    touchControls.classList.toggle('secondary-stick-active', second.active);
+    touchControls.classList.toggle('joystick-active', activeCount > 0);
 
-    game.input.x = moveActive ? moveState.vectorX : 0;
-    game.input.y = moveActive ? moveState.vectorY : 0;
-    game.input.aimX = aimActive ? aimState.vectorX : 0;
-    game.input.aimY = aimActive ? aimState.vectorY : 0;
-    game.input.aimMode = aimActive;
-    setStickRoleVisual('first', 'move');
-    setStickRoleVisual('second', 'aim');
+    game.input.x = moveState ? moveState.vectorX : 0;
+    game.input.y = moveState ? moveState.vectorY : 0;
+    game.input.aimX = aimState ? aimState.vectorX : 0;
+    game.input.aimY = aimState ? aimState.vectorY : 0;
+    game.input.aimMode = !!aimState;
+    setStickRoleVisual('first', first.role || 'move');
+    setStickRoleVisual('second', second.role || (isAutoAttackThreatActive() ? 'aim' : 'move'));
   }
 
   function setStickFromPointer(slot, clientX, clientY, isStart = false) {
@@ -2811,7 +2958,7 @@
     const n = normalize(dx, dy);
     const distance = Math.hypot(dx, dy);
     const rawMagnitude = clamp(distance / max, 0, 1);
-    const deadzone = slot === 'first' ? 0.24 : 0.08;
+    const deadzone = state.role === 'aim' ? 0.08 : 0.24;
     const outputMagnitude = rawMagnitude <= deadzone ? 0 : (rawMagnitude - deadzone) / (1 - deadzone);
     const mag = Math.min(max, distance);
     knob.style.left = `calc(50% + ${n.x * mag}px)`;
@@ -2825,6 +2972,7 @@
     const { state, base, knob } = stickParts(slot);
     state.pointerId = null;
     state.active = false;
+    state.role = null;
     state.originX = 0;
     state.originY = 0;
     state.vectorX = 0;
@@ -2873,12 +3021,14 @@
 
     const beginJoy = (clientX, clientY, pointerId = 'touch') => {
       if (!game.running || game.paused) return false;
-      // Screen half permanently determines the stick role: left MOVE, right AIM.
+      // Left is always movement. Right becomes aim only while danger is active;
+      // in safe areas it remains available as a one-thumb movement stick.
       const slot = clientX < window.innerWidth / 2 ? 'first' : 'second';
       const state = game.joystick[slot];
       if (state.active) return false;
       state.pointerId = pointerId;
       state.active = true;
+      state.role = slot === 'first' ? 'move' : (isAutoAttackThreatActive() ? 'aim' : 'move');
       state.vectorX = 0;
       state.vectorY = 0;
       state.startX = clientX;
@@ -2922,8 +3072,9 @@
       const swipeY = state.lastY - state.startY;
       const swipeDistance = Math.max(state.maxDistance, Math.hypot(swipeX, swipeY));
       const qualifiesAsFlick = elapsed <= DODGE.maxGestureMs && swipeDistance >= DODGE.minSwipe;
-      const shouldDodge = slot === 'first' && qualifiesAsFlick;
-      const shouldRegisterAimFlick = slot === 'second' && qualifiesAsFlick;
+      const releasedRole = state.role;
+      const shouldDodge = releasedRole === 'move' && qualifiesAsFlick;
+      const shouldRegisterAimFlick = releasedRole === 'aim' && qualifiesAsFlick;
       const dodgeDir = Math.hypot(state.vectorX, state.vectorY) > 0.25 ? { x: state.vectorX, y: state.vectorY } : normalize(swipeX, swipeY);
       clearStick(slot);
       syncTouchControlRoles();
@@ -3631,6 +3782,129 @@
     }
   }
 
+  function drawIsoCampNpc(npc, p) {
+    if (!npc.appearance) npc.appearance = generateCampNpcAppearance(npc.role);
+    const a = npc.appearance;
+    const facingWorld = normalize(Number(npc.facingX) || 1, Number(npc.facingY) || 0);
+    const facing = screenFacingVector(facingWorld);
+    const side = { x: facing.y, y: -facing.x };
+    const feetY = p.y;
+    drawIsoShadow(npc.x, npc.y, 24, 8, .36);
+    ctx.save();
+
+    if (a.cape) {
+      ctx.fillStyle = a.capeColor;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 18, feetY - 65);
+      ctx.lineTo(p.x + 18, feetY - 65);
+      ctx.lineTo(p.x + 23 - facing.x * 8, feetY - 24);
+      ctx.lineTo(p.x - 23 - facing.x * 8, feetY - 24);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.fillStyle = a.boots;
+    ctx.fillRect(p.x - 14, feetY - 17, 10, 18);
+    ctx.fillRect(p.x + 4, feetY - 17, 10, 18);
+    ctx.fillStyle = a.clothAlt;
+    ctx.fillRect(p.x - 12, feetY - 37, 9, 23);
+    ctx.fillRect(p.x + 3, feetY - 37, 9, 23);
+
+    const torsoColor = a.chestStyle === 'plate' ? a.metal : a.cloth;
+    ctx.fillStyle = torsoColor;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 20, feetY - 67);
+    ctx.lineTo(p.x + 20, feetY - 67);
+    ctx.lineTo(p.x + 16, feetY - 31);
+    ctx.lineTo(p.x - 16, feetY - 31);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#302117'; ctx.lineWidth = 3; ctx.stroke();
+    if (a.chestStyle === 'robe') {
+      ctx.fillStyle = a.cloth;
+      ctx.beginPath(); ctx.moveTo(p.x - 17, feetY - 40); ctx.lineTo(p.x + 17, feetY - 40); ctx.lineTo(p.x + 25, feetY - 15); ctx.lineTo(p.x - 25, feetY - 15); ctx.closePath(); ctx.fill();
+    } else if (a.chestStyle === 'apron') {
+      ctx.fillStyle = '#c8b89b';
+      ctx.fillRect(p.x - 12, feetY - 62, 24, 37);
+      ctx.strokeStyle = '#675a49'; ctx.lineWidth = 2; ctx.strokeRect(p.x - 12, feetY - 62, 24, 37);
+    } else if (a.chestStyle === 'plate') {
+      ctx.strokeStyle = 'rgba(255,255,255,.32)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p.x - 15, feetY - 57); ctx.lineTo(p.x + 15, feetY - 57); ctx.moveTo(p.x, feetY - 65); ctx.lineTo(p.x, feetY - 34); ctx.stroke();
+    }
+
+    ctx.strokeStyle = a.gloves ? a.clothAlt : a.skin;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 14, feetY - 59); ctx.lineTo(p.x - 24 + side.x * 3, feetY - 40 + side.y * 3);
+    ctx.moveTo(p.x + 14, feetY - 59); ctx.lineTo(p.x + 24 - side.x * 3, feetY - 40 - side.y * 3);
+    ctx.stroke();
+    ctx.fillStyle = '#6d4c2c'; ctx.fillRect(p.x - 17, feetY - 38, 34, 5);
+
+    ctx.fillStyle = a.skin;
+    ctx.beginPath(); ctx.arc(p.x, feetY - 78, 13, 0, TAU); ctx.fill();
+    if (a.helmet === 'hood') {
+      ctx.fillStyle = a.clothAlt;
+      ctx.beginPath(); ctx.arc(p.x, feetY - 80, 17, Math.PI, TAU); ctx.lineTo(p.x + 14, feetY - 72); ctx.lineTo(p.x - 14, feetY - 72); ctx.closePath(); ctx.fill();
+    } else if (a.helmet === 'cap') {
+      ctx.fillStyle = a.cloth;
+      ctx.beginPath(); ctx.arc(p.x, feetY - 82, 14, Math.PI, TAU); ctx.fill();
+      ctx.fillRect(p.x + 7, feetY - 83, 12, 3);
+    } else if (a.helmet === 'openHelm') {
+      ctx.fillStyle = a.metal;
+      ctx.beginPath(); ctx.moveTo(p.x - 15, feetY - 80); ctx.quadraticCurveTo(p.x - 12, feetY - 99, p.x, feetY - 101); ctx.quadraticCurveTo(p.x + 12, feetY - 99, p.x + 15, feetY - 80); ctx.lineTo(p.x + 12, feetY - 72); ctx.lineTo(p.x - 12, feetY - 72); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#342e28'; ctx.lineWidth = 2; ctx.stroke();
+    } else if (a.hairStyle !== 'bald') {
+      ctx.fillStyle = a.hair;
+      if (a.hairStyle === 'long') ctx.fillRect(p.x - 13, feetY - 87, 26, 18);
+      ctx.beginPath(); ctx.arc(p.x, feetY - 83, 13, Math.PI, TAU); ctx.fill();
+      if (a.hairStyle === 'crest') ctx.fillRect(p.x - 3, feetY - 101, 6, 12);
+    }
+
+    if (a.shield) {
+      const shieldX = p.x - side.x * 24 - facing.x * 2;
+      const shieldY = feetY - 48 - side.y * 10;
+      ctx.fillStyle = a.metal; ctx.strokeStyle = '#4a382a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(shieldX, shieldY, 14, 19, -.12, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = a.cloth; ctx.beginPath(); ctx.arc(shieldX, shieldY, 5, 0, TAU); ctx.fill();
+    }
+
+    const weaponX = p.x + side.x * 20 + facing.x * 3;
+    const weaponY = feetY - 46 + side.y * 10;
+    const weaponDir = normalize(facing.x + .22, facing.y - .15);
+    if (a.weapon === 'staff') {
+      ctx.strokeStyle = '#745033'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(weaponX, weaponY + 20); ctx.lineTo(weaponX + weaponDir.x * 62, weaponY + weaponDir.y * 62 - 18); ctx.stroke();
+      ctx.fillStyle = '#7fc3b5'; ctx.beginPath(); ctx.arc(weaponX + weaponDir.x * 62, weaponY + weaponDir.y * 62 - 18, 6, 0, TAU); ctx.fill();
+    } else {
+      const weaponType = ['sword', 'dagger', 'spear', 'hammer'].includes(a.weapon) ? a.weapon : 'sword';
+      const tip = { x: weaponX + weaponDir.x * weaponPixelLength(weaponType, false) * .82, y: weaponY + weaponDir.y * weaponPixelLength(weaponType, false) * .82 };
+      drawWeaponModel({ x: weaponX, y: weaponY }, tip, weaponType, a.metal, { alpha: .95 });
+    }
+
+    ctx.fillStyle = '#eee3cd'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(npc.name, p.x, feetY - 112);
+    if (npc.locked) { ctx.fillStyle = '#f4d45e'; ctx.font = 'bold 18px sans-serif'; ctx.fillText('!', p.x, feetY - 131); }
+    ctx.restore();
+  }
+
+  function drawTopDownCampNpc(npc) {
+    if (!npc.appearance) npc.appearance = generateCampNpcAppearance(npc.role);
+    const a = npc.appearance;
+    const f = normalize(Number(npc.facingX) || 1, Number(npc.facingY) || 0);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(npc.x, npc.y + 13, 19, 9, 0, 0, TAU); ctx.fill();
+    if (a.cape) { ctx.fillStyle = a.capeColor; ctx.beginPath(); ctx.arc(npc.x - f.x * 9, npc.y - f.y * 9, 20, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = a.chestStyle === 'plate' ? a.metal : a.cloth; ctx.beginPath(); ctx.arc(npc.x, npc.y, 18, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#33271f'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = a.skin; ctx.beginPath(); ctx.arc(npc.x + f.x * 11, npc.y + f.y * 11, 9, 0, TAU); ctx.fill();
+    if (a.helmet !== 'none') { ctx.strokeStyle = a.helmet === 'openHelm' ? a.metal : a.clothAlt; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(npc.x + f.x * 11, npc.y + f.y * 11, 9, 0, TAU); ctx.stroke(); }
+    if (a.shield) { ctx.fillStyle = a.metal; ctx.beginPath(); ctx.arc(npc.x - f.y * 19, npc.y + f.x * 19, 8, 0, TAU); ctx.fill(); }
+    ctx.strokeStyle = a.weapon === 'staff' ? '#745033' : a.metal; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(npc.x + f.y * 12, npc.y - f.x * 12); ctx.lineTo(npc.x + f.y * 12 + f.x * 30, npc.y - f.x * 12 + f.y * 30); ctx.stroke();
+    ctx.fillStyle = '#eee3cd'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(npc.name, npc.x, npc.y - 31);
+    if (npc.locked) { ctx.fillStyle = '#e7c85a'; ctx.font = '18px sans-serif'; ctx.fillText('!', npc.x, npc.y - 47); }
+    ctx.restore();
+  }
+
   function drawCampObject(obj) {
     const p = worldToScreen(obj.x,obj.y,0);
     if (obj.kind === 'tree') {
@@ -3651,8 +3925,7 @@
       ctx.fillStyle='#090909'; ctx.beginPath(); ctx.ellipse(p.x,p.y-55,74,82,0,Math.PI,TAU); ctx.lineTo(p.x+74,p.y); ctx.lineTo(p.x-74,p.y); ctx.closePath(); ctx.fill();
       ctx.strokeStyle='#5b5953'; ctx.lineWidth=12; ctx.stroke(); ctx.fillStyle='#d7bf85'; ctx.font='bold 14px Georgia'; ctx.textAlign='center'; ctx.fillText('THE DESCENT',p.x,p.y-150);
     } else if (obj.kind === 'npc') {
-      const npc=obj.npc; drawIsoShadow(npc.x,npc.y,18,6,.28); ctx.fillStyle=npc.locked?'#d9aa55':'#8fb4c1'; ctx.fillRect(p.x-11,p.y-45,22,38); ctx.fillStyle='#d8ae7d'; ctx.beginPath(); ctx.arc(p.x,p.y-55,10,0,TAU); ctx.fill();
-      ctx.fillStyle='#eee3cd'; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.fillText(npc.name,p.x,p.y-75); if(npc.locked){ctx.fillStyle='#f4d45e';ctx.font='bold 18px sans-serif';ctx.fillText('!',p.x,p.y-94);}
+      drawIsoCampNpc(obj.npc, p);
     }
   }
 
@@ -3844,10 +4117,7 @@
     }
     // NPCs
     for (const npc of game.campNpcs) {
-      ctx.fillStyle = npc.locked ? '#d9aa55' : '#8fb4c1';
-      ctx.beginPath(); ctx.arc(npc.x, npc.y, 19, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#eee3cd'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(npc.name, npc.x, npc.y - 28);
-      if (npc.locked) { ctx.fillStyle = '#e7c85a'; ctx.font = '18px sans-serif'; ctx.fillText('!', npc.x, npc.y - 43); }
+      drawTopDownCampNpc(npc);
     }
   }
 
@@ -4183,7 +4453,7 @@
     return String(value).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
   }
 
-  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, hideModal, update, render, saveGame };
+  window.__DungeonCampDebug = { game, DODGE, ISO, PLAYER_SPEED_MULTIPLIER, ENEMY_SPEED_MULTIPLIER, createCharacter, normalizeEquipment, generateFloor, enterDungeon, enterRoom, enterCamp, currentFloor, currentRoom, requestAttack, fireProjectile, attemptDodge, isCombatActive, hasNearbyHostileProjectile, isAutoAttackThreatActive, handleBossDeath, updateDodgeChargeStrike, pointToSegmentDistance, screenVectorToWorld, twinStickRoles, doorWasTraversed, showMap, showStorageChest, useLootMagnet, dropInventoryIndex, addCameraShake, hitEnemy, getDerivedStats, depositInventoryIndex, withdrawStorageIndex, depositAllMaterialsAndQuestItems, showInventory, equipInventoryIndex, showSupplyShop, showSellEquipment, sellInventoryByRarity, gearStrength, renderCollectionGroups, spawnEnemy, enemySpawnPosition, updateEnemies, registerAimFlick, startWithCharacter, showFloorSelection, generateCampNpcAppearance, ensureCampNpcAppearances, hideModal, update, render, saveGame };
   resizeCanvas();
   bindControls();
   renderSaveSlots();
@@ -4203,6 +4473,9 @@
       currentRoom,
       createCharacter,
       startWithCharacter,
+      showFloorSelection,
+      generateCampNpcAppearance,
+      ensureCampNpcAppearances,
       hideModal,
       showStorageChest,
       depositInventoryIndex,

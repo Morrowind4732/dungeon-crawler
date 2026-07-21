@@ -1,25 +1,32 @@
-# Dungeon Camp Prototype — Isometric Patch 13
+# Dungeon Crawler — Isometric Patch 14
 
 Open `index.html` in a modern mobile browser. No server, package install, or external assets are required.
 
-## Patch 13 highlights
+## Patch 14 highlights
 
-- The full dungeon map now uses the same isometric diamond orientation as the playable rooms
-- Full-map doors and routes line up with the room view: N upper-right, E lower-right, S lower-left, and W upper-left
-- The current room is highlighted and automatically centered when the full map opens
-- Every touch starting on the left half of the screen is permanently assigned to MOVE
-- Every touch starting on the right half of the screen is permanently assigned to AIM, even with no movement touch active
-- The movement stick has a larger dead zone to prevent tiny thumb drift from walking the player into enemies
-- MOVE flick dodge and AIM double-flick dodge both work independently
-- Auto-attack remains active while hostile ricocheting projectiles are near the player, even after the last enemy dies
+- Renamed the game to **Dungeon Crawler**
+- Simplified the title/save screen by removing patch labels, feature descriptions, slot explanations, and control instructions
+- Replaced the scrolling floor list with a game-style expedition menu:
+  - floor selector across the top
+  - one selected floor shown at a time
+  - visual Small, Medium, Large, and Huge dungeon-size cards
+  - a dominant Begin or Resume Expedition button
+  - quieter rerun and new-layout controls
+- The right-side touch control is now context-sensitive:
+  - MOVE while camp or dungeon exploration is safe
+  - AIM while enemies or dangerous hostile projectiles are active
+  - the left side remains MOVE at all times
+- Camp visitors now use full humanoid bodies and persistent randomized appearances, including armor, robes, helmets, hair, capes, shields, and weapons
 
-## Features carried forward from Patch 12
+## Features carried forward
 
-- Weapon attacks generate a bright air-slash effect aligned to the active damage zone
-- Every floor has a guaranteed free retreat through the original entrance
-- Special monster variants are larger, use distinct abilities, and are identified by a subtle gold aura rather than an `ALPHA` label
-- Newly generated dungeons default to Small, with purchased Medium, Large, and Huge expeditions awarding increased monster XP
-- The Horned Warden uses speed phases, charges, and the special monster abilities
+- Isometric full dungeon map matching the playable-room directions
+- Nearby hostile projectiles keep auto-swing active after a room is cleared
+- Bright slash indicators aligned to the active melee damage area
+- Guaranteed retreat through each floor entrance
+- Larger glowing special monster variants with unique abilities
+- Small dungeons by default, with purchased larger expeditions granting increased monster XP
+- Reworked Horned Warden boss behavior
 - New characters begin with the Camp-Forged Sword
 
 Keyed doors and key/puzzle-gated backtracking remain reserved for a future patch.
