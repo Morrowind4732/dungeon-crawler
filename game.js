@@ -728,7 +728,14 @@
     }
     if (room.type === 'rest') game.roomFeatures.push({ id: uid('feature'), type: 'shrine', x: game.roomWorld.w / 2, y: game.roomWorld.h / 2, used: room.restUsed });
     if (room.type === 'escape') game.roomFeatures.push({ id: uid('feature'), type: 'escape', x: game.roomWorld.w / 2, y: game.roomWorld.h / 2, used: false });
-    if (room.type === 'start') room.cleared = true;
+    if (room.type === 'start') {
+      room.cleared = true;
+      // Every floor has a guaranteed, no-cost retreat point in its starting room.
+      game.roomFeatures.push({
+        id: uid('feature'), type: 'entranceExit',
+        x: game.roomWorld.w / 2, y: game.roomWorld.h / 2 + 110, used: false,
+      });
+    }
   }
 
   function enemySpawnPosition(type = 'zombie') {
@@ -762,7 +769,8 @@
     const alphaHp = isAlpha ? 2.15 : 1;
     const alphaDamage = isAlpha ? 1.32 : 1;
     const alphaSpeed = isAlpha ? 1.08 : 1;
-    const alphaRadius = isAlpha ? 1.28 : 1;
+    // Patch 12: alphas are 25% larger than Patch 11, including their gameplay hit radius.
+    const alphaRadius = isAlpha ? 1.6 : 1;
     const alphaXp = isAlpha ? 2.5 : 1;
     const scale = type === 'boss' ? 1 + (floorLevel - 1) * 0.33 : 1 + (floorLevel - 1) * 0.19;
     let sx = x, sy = y, spawnEdge = null;
@@ -772,7 +780,7 @@
     }
     const rawHp = (extra.hp || base.hp) * alphaHp;
     const e = {
-      id: uid('enemy'), type, name: isAlpha ? (type === 'imp' ? 'Alpha Cinder Demon' : `Alpha ${base.name}`) : (extra.name || base.name),
+      id: uid('enemy'), type, name: extra.name || base.name,
       x: sx, y: sy, vx: 0, vy: 0, radius: (extra.radius || base.radius) * alphaRadius,
       maxHp: Math.round(rawHp * scale), hp: Math.round(rawHp * scale),
       speed: (extra.speed || base.speed) * alphaSpeed * ENEMY_SPEED_MULTIPLIER * (1 + (floorLevel - 1) * 0.02),
@@ -975,6 +983,8 @@
     const phaseDirection = a.phase % 2 === 0 ? a.direction : -a.direction;
     const sweep = phaseDirection > 0 ? lerp(-halfArc, halfArc, progress) : lerp(halfArc, -halfArc, progress);
     a.currentAngle = facingAngle + sweep;
+    a.progress = progress;
+    a.phaseDirection = phaseDirection;
 
     if (game.scene === 'dungeon' && progress >= 0.08 && progress <= 0.96) {
       for (const enemy of game.enemies) {
@@ -1969,6 +1979,7 @@
     if (f.type === 'chest') return f.opened ? 'Empty chest' : 'Open treasure chest';
     if (f.type === 'shrine') return f.used ? 'Faded shrine' : 'Rest at shrine';
     if (f.type === 'escape') return 'Take free escape route';
+    if (f.type === 'entranceExit') return 'Climb back to camp';
     if (f.type === 'victoryExit') return 'Return safely to camp';
     return 'Interact';
   }
@@ -2044,6 +2055,8 @@
       saveGame();
     } else if (feature.type === 'escape') {
       safeReturnToCamp('You found a free route back to the surface and kept everything.');
+    } else if (feature.type === 'entranceExit') {
+      safeReturnToCamp('You backtrack to the dungeon entrance and climb safely to camp with everything you collected.');
     } else if (feature.type === 'victoryExit') {
       safeReturnToCamp('You leave through the boss portal with every item you collected.');
     }
@@ -2247,7 +2260,7 @@
       <div class="choice-list">
         <button id="useRope" class="choice-btn" ${ropes <= 0 ? 'disabled' : ''}><strong>Escape Dungeon</strong>Use an Escape Rope and keep all items. You have ${ropes}.</button>
         <button id="fleeDungeon" class="choice-btn"><strong>Flee Dungeon</strong>Keep equipped gear, secure three inventory slots, and risk losing some unsecured items.</button>
-        <button id="stayDungeon" class="choice-btn"><strong>Stay</strong>Continue the expedition or backtrack to a discovered free escape route.</button>
+        <button id="stayDungeon" class="choice-btn"><strong>Stay</strong>Continue the expedition, or backtrack to the starting room and climb out through the entrance for free.</button>
       </div>`);
     $('useRope').addEventListener('click', () => {
       if (!removeItem('escape_rope', 1)) return;
@@ -2586,7 +2599,7 @@
           doorMarkup.push(`<span class="map-door door-${dir.key.toLowerCase()} ${traversed ? 'known' : 'unexplored'}" aria-label="${traversed ? 'Traversed' : 'Unchecked'} ${dir.key} door"></span>`);
         }
         if (hasUncheckedDoor) cls.push('frontier');
-        const mark = room.type === 'boss' ? 'B' : room.type === 'escape' ? 'E' : room.type === 'gathering' ? 'G' : room.type === 'rest' ? 'R' : '';
+        const mark = room.type === 'start' ? 'S' : room.type === 'boss' ? 'B' : room.type === 'escape' ? 'E' : room.type === 'gathering' ? 'G' : room.type === 'rest' ? 'R' : '';
         cells.push(`<div class="${cls.join(' ')}" title="${room.type}${hasUncheckedDoor ? ' · unchecked door' : ''}">${mark}${doorMarkup.join('')}</div>`);
       }
     }
@@ -2594,7 +2607,7 @@
       <p>${floor.sizeName} floor · ${rooms.filter(r => r.discovered).length}/${floor.roomCount} rooms discovered · <strong>${uncheckedEdges.size}</strong> unchecked door${uncheckedEdges.size === 1 ? '' : 's'}.</p>
       <div class="map-legend"><span><i class="legend-door unexplored"></i> Unchecked door</span><span><i class="legend-door known"></i> Traversed door</span><span class="legend-current">Current room</span></div>
       <div class="map-scroll"><div class="map-grid" style="grid-template-columns:repeat(${cols},34px)">${cells.join('')}</div></div>
-      <p class="muted">Yellow doors have not been used. Green doors are routes you have already traveled. E = free escape, B = boss, G = gathering, R = rest.</p>
+      <p class="muted">Yellow doors have not been used. Green doors are routes you have already traveled. S = dungeon entrance and guaranteed retreat, E = bonus free escape, B = boss, G = gathering, R = rest.</p>
     `);
   }
 
@@ -3289,11 +3302,81 @@
     ctx.restore();
     if (p.attack && !facingAway) drawIsoAttack(false);
   }
+  function drawIsoSlashIndicator(a, behind = false) {
+    if (!a || !game.player) return;
+    const p = game.player;
+    const progress = clamp(a.progress ?? (a.t / Math.max(0.001, a.weapon.duration)), 0, 1);
+    if (progress <= 0.02 || progress >= 1) return;
+    const angle = a.currentAngle ?? Math.atan2(p.facing.y, p.facing.x);
+    const phaseDirection = a.phaseDirection || 1;
+    const outerReach = a.weapon.reach;
+    const innerReach = Math.max(p.radius + 9, outerReach * 0.28);
+    const halfWidth = clamp(a.weapon.bladeWidth + 0.08, 0.22, 0.46);
+    const life = Math.sin(progress * Math.PI);
+    const segments = 14;
+    const projected = (radius, theta, z = 34) => worldToScreen(
+      p.x + Math.cos(theta) * radius,
+      p.y + Math.sin(theta) * radius,
+      z
+    );
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = (behind ? 0.42 : 0.78) * (0.35 + life * 0.65);
+    const gradient = ctx.createLinearGradient(
+      projected(innerReach, angle).x,
+      projected(innerReach, angle).y,
+      projected(outerReach, angle).x,
+      projected(outerReach, angle).y
+    );
+    gradient.addColorStop(0, 'rgba(210,235,255,0.02)');
+    gradient.addColorStop(0.55, 'rgba(210,235,255,0.20)');
+    gradient.addColorStop(1, 'rgba(250,247,226,0.68)');
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = 'rgba(235,247,255,.72)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    for (let i = 0; i <= segments; i++) {
+      const theta = angle - halfWidth + (halfWidth * 2 * i / segments);
+      const point = projected(outerReach, theta);
+      if (i === 0) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+    }
+    for (let i = segments; i >= 0; i--) {
+      const theta = angle - halfWidth + (halfWidth * 2 * i / segments);
+      const point = projected(innerReach, theta);
+      ctx.lineTo(point.x, point.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // A bright leading edge shows the exact direction currently capable of dealing damage.
+    const start = projected(innerReach * 0.82, angle);
+    const tip = projected(outerReach + 5, angle);
+    ctx.globalAlpha = (behind ? 0.48 : 0.95) * (0.45 + life * 0.55);
+    ctx.strokeStyle = 'rgba(255,248,221,.96)';
+    ctx.lineWidth = 4.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    // Fainter wake lines make the swing direction readable without implying extra hit range.
+    for (let i = 1; i <= 3; i++) {
+      const wakeAngle = angle - phaseDirection * i * 0.075;
+      const wakeStart = projected(innerReach + i * 3, wakeAngle);
+      const wakeTip = projected(outerReach - i * 7, wakeAngle);
+      ctx.globalAlpha = (behind ? 0.14 : 0.28) * (1 - i / 4) * (0.4 + life * 0.6);
+      ctx.lineWidth = Math.max(1.2, 3.8 - i * 0.7);
+      ctx.beginPath(); ctx.moveTo(wakeStart.x, wakeStart.y); ctx.lineTo(wakeTip.x, wakeTip.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawIsoAttack(behind = false) {
     const p = game.player;
     const a = p.attack;
     if (!a) return;
     const angle = a.currentAngle || 0;
+    drawIsoSlashIndicator(a, behind);
     const worldDirection = { x: Math.cos(angle), y: Math.sin(angle) };
     const hand = playerHandAnchor(getEquippedWeapon().hand, worldDirection);
     const tip = fixedWeaponTip(hand, worldDirection, a.weapon.weaponType || 'sword', true);
@@ -3368,7 +3451,15 @@
     const leapHeight = e.specialState === 'slimeLeap' ? Math.sin(leapProgress * Math.PI) * 120 : 0;
     const feet = worldToScreen(e.x, e.y, leapHeight);
     const flash = e.hitFlash > 0;
-    if (e.isAlpha) drawIsoGroundEllipse(e.x,e.y,e.radius+18,e.radius+18,'rgba(224,178,68,.12)','#e0b244',4);
+    if (e.isAlpha) {
+      const pulse = 0.5 + Math.sin(performance.now() / 270 + e.x * 0.01) * 0.5;
+      drawIsoGroundEllipse(e.x, e.y, e.radius + 21 + pulse * 5, e.radius + 21 + pulse * 5, 'rgba(224,178,68,.08)', 'rgba(232,190,78,.58)', 3);
+      const aura = ctx.createRadialGradient(feet.x, feet.y - 44, 4, feet.x, feet.y - 44, Math.max(64, e.radius * 2.5));
+      aura.addColorStop(0, 'rgba(246,205,91,.22)');
+      aura.addColorStop(0.48, 'rgba(229,179,63,.10)');
+      aura.addColorStop(1, 'rgba(229,179,63,0)');
+      ctx.save(); ctx.fillStyle = aura; ctx.beginPath(); ctx.ellipse(feet.x, feet.y - 44, Math.max(40, e.radius * 1.35), Math.max(68, e.radius * 2.25), 0, 0, TAU); ctx.fill(); ctx.restore();
+    }
     if (e.type === 'boss' && e.specialState === 'chargeWindup' && e.specialTarget) {
       const a = worldToScreen(e.x,e.y,0), b = worldToScreen(e.specialTarget.x,e.specialTarget.y,0);
       ctx.save(); ctx.strokeStyle='#ff5b4f'; ctx.lineWidth=8; ctx.globalAlpha=.72; ctx.setLineDash([18,12]); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.restore();
@@ -3377,7 +3468,7 @@
     if (e.type === 'shadow' && e.state === 'vanish') drawIsoGroundEllipse(e.x,e.y,e.radius+20,e.radius+20,null,'#8c74dc',3);
     drawIsoShadow(e.x,e.y,e.type==='boss'?82:e.radius*1.05,e.type==='boss'?25:e.radius*.35,e.type==='shadow'?.22:e.type==='boss'?.48:.34);
     ctx.save();
-    if (e.isAlpha) { ctx.translate(feet.x, feet.y); ctx.scale(1.16, 1.16); ctx.translate(-feet.x, -feet.y); }
+    if (e.isAlpha) { ctx.translate(feet.x, feet.y); ctx.scale(1.45, 1.45); ctx.translate(-feet.x, -feet.y); }
     ctx.strokeStyle='rgba(18,13,10,.82)'; ctx.lineWidth=3;
     if (e.type === 'spider') {
       const bodyY=feet.y-20; ctx.strokeStyle=flash?'#fff4db':'#352b31';ctx.lineWidth=4;
@@ -3409,7 +3500,6 @@
       const torsoTop=feet.y-58;ctx.fillStyle=e.type==='skeleton'?'#bdb59f':flash?'#fff4db':e.color;ctx.beginPath();ctx.moveTo(feet.x-17,torsoTop);ctx.lineTo(feet.x+17,torsoTop);ctx.lineTo(feet.x+15,feet.y-17);ctx.lineTo(feet.x-15,feet.y-17);ctx.closePath();ctx.fill();ctx.stroke();ctx.beginPath();ctx.arc(feet.x,torsoTop-14,12,0,TAU);ctx.fill();ctx.stroke();ctx.strokeStyle=flash?'#fff4db':e.color;ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(feet.x-8,feet.y-20);ctx.lineTo(feet.x-12,feet.y);ctx.moveTo(feet.x+8,feet.y-20);ctx.lineTo(feet.x+12,feet.y);ctx.stroke();drawActorHealth(e,feet,82);
     }
     ctx.restore();
-    if (e.isAlpha) { ctx.save(); ctx.fillStyle='#f1c75a'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.fillText('ALPHA', feet.x, feet.y - Math.max(82, e.radius * 3.4)); ctx.restore(); }
     if (e.type === 'boss') { ctx.save(); ctx.fillStyle='#f0d3a3'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; const mode=e.specialState==='chargeWindup'?'CHARGE INCOMING':e.specialState==='charge'?'CHARGING':e.bossMode==='slow'?'EXPOSED':e.bossMode==='medium'?'HUNTING':'FRENZY'; ctx.fillText(mode, feet.x, feet.y-205); ctx.restore(); }
   }
   function drawIsoProjectile(p) {
@@ -3460,6 +3550,18 @@
       ctx.fillStyle=f.opened?'#493a29':'#9a6a2c'; ctx.fillRect(p.x-42,p.y-48,84,48); ctx.strokeStyle='#d9aa55'; ctx.lineWidth=4; ctx.strokeRect(p.x-42,p.y-48,84,48);
     } else if (f.type === 'shrine') {
       ctx.fillStyle=f.used?'#525257':'#718ba5'; ctx.beginPath(); ctx.moveTo(p.x,p.y-92); ctx.lineTo(p.x+38,p.y); ctx.lineTo(p.x-38,p.y); ctx.closePath(); ctx.fill();
+    } else if (f.type === 'entranceExit') {
+      const pulse = 1 + Math.sin(performance.now() / 320) * 0.035;
+      drawIsoGroundEllipse(f.x, f.y, 86 * pulse, 62 * pulse, 'rgba(103,174,187,.12)', 'rgba(128,208,220,.72)', 4);
+      ctx.fillStyle = '#16191a';
+      ctx.beginPath(); ctx.ellipse(p.x, p.y - 26, 57, 40, 0, Math.PI, TAU); ctx.lineTo(p.x + 57, p.y); ctx.lineTo(p.x - 57, p.y); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#77736b'; ctx.lineWidth = 7; ctx.stroke();
+      ctx.strokeStyle = '#aaa296'; ctx.lineWidth = 5;
+      for (let i = 0; i < 4; i++) {
+        const y = p.y - 4 - i * 9;
+        ctx.beginPath(); ctx.moveTo(p.x - 38 + i * 6, y); ctx.lineTo(p.x + 38 - i * 6, y); ctx.stroke();
+      }
+      ctx.fillStyle = '#c9edf0'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('TO CAMP', p.x, p.y - 55);
     } else if (f.type === 'escape' || f.type === 'victoryExit') {
       const victory=f.type==='victoryExit'; const color=victory?'#f4ca64':'#6ed6b5'; const pulse=1+Math.sin(performance.now()/240)*.07;
       ctx.strokeStyle=color; ctx.lineWidth=10; ctx.shadowColor=color; ctx.shadowBlur=18; ctx.beginPath(); ctx.ellipse(p.x,p.y-56,52*pulse,78*pulse,0,0,TAU); ctx.stroke();
@@ -3657,6 +3759,11 @@
       const ep = miniPoint(exit.x, exit.y);
       ctx.strokeStyle = '#f4ca64'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ep.x,ep.y,4.5,0,TAU); ctx.stroke();
     }
+    for (const entrance of game.roomFeatures.filter(feature => feature.type === 'entranceExit')) {
+      const ep = miniPoint(entrance.x, entrance.y);
+      ctx.fillStyle = '#8dd9e1';
+      ctx.beginPath(); ctx.moveTo(ep.x,ep.y-5); ctx.lineTo(ep.x+4.5,ep.y+4); ctx.lineTo(ep.x-4.5,ep.y+4); ctx.closePath(); ctx.fill();
+    }
 
     const pp = miniPoint(game.player.x, game.player.y);
     const fp = miniPoint(game.player.x + game.player.facing.x * 95, game.player.y + game.player.facing.y * 95);
@@ -3790,6 +3897,13 @@
         ctx.fillStyle = f.opened ? '#493a29' : '#9a6a2c'; ctx.fillRect(f.x-55,f.y-36,110,72); ctx.strokeStyle = '#d9aa55'; ctx.lineWidth = 5; ctx.strokeRect(f.x-55,f.y-36,110,72);
       } else if (f.type === 'shrine') {
         ctx.fillStyle = f.used ? '#525257' : '#718ba5'; ctx.beginPath(); ctx.moveTo(f.x,f.y-82); ctx.lineTo(f.x+55,f.y+55); ctx.lineTo(f.x-55,f.y+55); ctx.closePath(); ctx.fill();
+      } else if (f.type === 'entranceExit') {
+        const pulse = 1 + Math.sin(performance.now() / 320) * 0.035;
+        ctx.fillStyle = 'rgba(103,174,187,.12)'; ctx.beginPath(); ctx.arc(f.x,f.y,82*pulse,0,TAU); ctx.fill();
+        ctx.strokeStyle = '#80d0dc'; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(f.x,f.y,72*pulse,0,TAU); ctx.stroke();
+        ctx.strokeStyle = '#aaa296'; ctx.lineWidth = 6;
+        for (let i=0;i<5;i++) { const y=f.y-34+i*15; ctx.beginPath(); ctx.moveTo(f.x-42+i*5,y); ctx.lineTo(f.x+42-i*5,y); ctx.stroke(); }
+        ctx.fillStyle = '#c9edf0'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('CAMP', f.x, f.y + 4);
       } else if (f.type === 'escape') {
         ctx.strokeStyle = '#6ed6b5'; ctx.lineWidth = 11; ctx.beginPath(); ctx.arc(f.x,f.y,78,0,TAU); ctx.stroke();
         ctx.strokeStyle = 'rgba(110,214,181,.28)'; ctx.lineWidth = 24; ctx.beginPath(); ctx.arc(f.x,f.y,95,0,TAU); ctx.stroke();
@@ -3813,10 +3927,19 @@
     ctx.restore();
     if (p.attack) {
       const a = p.attack;
-      const x2 = p.x + Math.cos(a.currentAngle || 0) * a.weapon.reach;
-      const y2 = p.y + Math.sin(a.currentAngle || 0) * a.weapon.reach;
-      ctx.strokeStyle = 'rgba(255,230,177,.9)'; ctx.lineWidth = 12; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(x2,y2); ctx.stroke(); ctx.lineCap = 'butt';
+      const angle = a.currentAngle || 0;
+      const halfWidth = clamp(a.weapon.bladeWidth + 0.08, 0.22, 0.46);
+      const inner = Math.max(p.radius + 9, a.weapon.reach * 0.28);
+      const progress = clamp(a.progress ?? 0.5, 0, 1);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35 + Math.sin(progress * Math.PI) * 0.5;
+      ctx.fillStyle = 'rgba(210,235,255,.22)'; ctx.strokeStyle = 'rgba(245,250,255,.82)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x,p.y,a.weapon.reach,angle-halfWidth,angle+halfWidth); ctx.arc(p.x,p.y,inner,angle+halfWidth,angle-halfWidth,true); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const x1 = p.x + Math.cos(angle) * inner * 0.82, y1 = p.y + Math.sin(angle) * inner * 0.82;
+      const x2 = p.x + Math.cos(angle) * (a.weapon.reach + 5), y2 = p.y + Math.sin(angle) * (a.weapon.reach + 5);
+      ctx.strokeStyle = 'rgba(255,248,221,.96)'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -3825,6 +3948,12 @@
       if (e.dead) continue;
       if (e.type === 'spider' && e.state === 'telegraph') {
         ctx.strokeStyle = '#df5b4a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(e.x,e.y,e.radius+18,0,TAU); ctx.stroke();
+      }
+      if (e.isAlpha) {
+        const glow = ctx.createRadialGradient(e.x,e.y,Math.max(2,e.radius*.2),e.x,e.y,e.radius*1.85);
+        glow.addColorStop(0,'rgba(246,205,91,.22)'); glow.addColorStop(1,'rgba(229,179,63,0)');
+        ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(e.x,e.y,e.radius*1.85,0,TAU); ctx.fill();
+        ctx.strokeStyle='rgba(232,190,78,.58)'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(e.x,e.y,e.radius+12,0,TAU); ctx.stroke();
       }
       ctx.fillStyle = e.hitFlash > 0 ? '#fff2d4' : e.color;
       ctx.beginPath(); ctx.arc(e.x,e.y,e.radius,0,TAU); ctx.fill();
