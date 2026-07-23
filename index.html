@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#17140f" />
   <title>Dungeon Crawler</title>
-  <link rel="stylesheet" href="style.css?v=19" />
+  <link rel="stylesheet" href="style.css?v=10" />
 </head>
 <body>
   <div id="app">
@@ -14,9 +14,9 @@
     <div id="hud" class="hidden">
       <div class="hud-left">
         <div class="bar-wrap"><span>HP</span><div class="bar"><div id="hpFill" class="bar-fill hp"></div></div><b id="hpText">100/100</b></div>
-        <div class="bar-wrap"><span>XP</span><div class="bar"><div id="xpFill" class="bar-fill xp"></div></div><b id="xpText">0/100</b></div>
         <div class="bar-wrap"><span>STA</span><div class="bar"><div id="staminaFill" class="bar-fill stamina free"></div></div><b id="staminaText">100/100</b></div>
         <div class="bar-wrap"><span>MP</span><div class="bar"><div id="manaFill" class="bar-fill mana"></div></div><b id="manaText">100/100</b></div>
+        <div class="bar-wrap"><span>XP</span><div class="bar"><div id="xpFill" class="bar-fill xp"></div></div><b id="xpText">0/100</b></div>
       </div>
       <div class="hud-center">
         <strong id="locationText">Camp</strong>
@@ -26,6 +26,65 @@
 
     <div id="toast" class="toast hidden"></div>
     <div id="prompt" class="prompt hidden"></div>
+    <div id="interactionLayer" class="interaction-layer hidden" aria-label="Nearby interactions"></div>
+
+    <section id="gatheringMode" class="gathering-mode hidden" aria-label="Gathering activity">
+      <div class="gathering-screen-shade"></div>
+      <header class="gathering-header">
+        <div class="gathering-title-group">
+          <span id="gatheringIcon" class="gathering-icon">⛏</span>
+          <div>
+            <small id="gatheringSkillLabel">MINING · LEVEL 1</small>
+            <strong id="gatheringResourceLabel">Ore Deposit</strong>
+          </div>
+        </div>
+        <div class="gathering-xp-card">
+          <small>SKILL XP</small>
+          <strong id="gatheringXpText">0 / 42</strong>
+          <div class="gathering-xp-track"><div id="gatheringXpFill"></div></div>
+        </div>
+      </header>
+
+      <div class="gathering-resource-panel">
+        <div class="gathering-resource-copy">
+          <span id="gatheringActionLabel">Working steadily…</span>
+          <b id="gatheringPercentLabel">100%</b>
+        </div>
+        <div class="gathering-resource-track"><div id="gatheringResourceFill"></div></div>
+      </div>
+
+      <div id="gatheringPlayfield" class="gathering-playfield">
+        <button id="precisionTarget" class="precision-target hidden" aria-label="Precision gathering target">
+          <span class="precision-ring outer"></span>
+          <span class="precision-ring ideal"></span>
+          <span class="precision-core"></span>
+        </button>
+
+        <div id="fishingChallenge" class="fishing-challenge hidden">
+          <small>TIME THE TUG</small>
+          <div class="fishing-meter">
+            <span class="fishing-zone weak left"></span>
+            <span class="fishing-zone good left"></span>
+            <span class="fishing-zone perfect"></span>
+            <span class="fishing-zone good right"></span>
+            <span class="fishing-zone weak right"></span>
+            <i id="fishingMarker" class="fishing-marker"></i>
+          </div>
+          <button id="fishingTugBtn" class="fishing-tug-btn">TUG</button>
+          <p>Fishing continues automatically. Well-timed tugs land the catch faster.</p>
+        </div>
+
+        <div id="gatheringFeedback" class="gathering-feedback hidden">PERFECT</div>
+      </div>
+
+      <aside class="gathering-session-card">
+        <small>THIS SESSION</small>
+        <strong id="gatheringLootText">No materials yet</strong>
+        <span id="gatheringSessionXp">+0 XP</span>
+      </aside>
+
+      <button id="gatheringCancelBtn" class="gathering-cancel-btn">Cancel</button>
+    </section>
 
     <div id="touchControls" class="hidden standard-controls">
       <div id="joystickZone" class="joystick-zone">
@@ -40,14 +99,15 @@
       </div>
       <div id="actionCluster" class="action-cluster">
         <div id="spellTray" class="spell-tray" aria-label="Equipped spells"></div>
+        <div id="potionTray" class="potion-tray" aria-label="Potion quick slots"></div>
         <button id="abilityBtn" class="action-btn small">Skill</button>
-        <button id="interactBtn" class="action-btn medium">Use</button>
+        <button id="bagBtn" class="action-btn medium">Bag</button>
         <button id="attackBtn" class="action-btn attack">Attack</button>
         <button id="autoBtn" class="action-btn small toggle on">Auto</button>
         <button id="potionBtn" class="action-btn small">Potion</button>
         <button id="magnetBtn" class="action-btn small magnet" title="Pull all room loot">🧲</button>
-        <button id="menuBtn" class="action-btn small menu-action" title="Game menu">Menu</button>
       </div>
+      <button id="menuBtn" class="action-btn small menu-bottom" title="Game menu">Menu</button>
     </div>
 
     <div id="modalBackdrop" class="modal-backdrop hidden">
@@ -68,6 +128,6 @@
     </section>
   </div>
 
-  <script src="game.js?v=19"></script>
+  <script src="game.js?v=10"></script>
 </body>
 </html>
